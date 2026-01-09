@@ -265,13 +265,30 @@ class MomentumIndicators(FeatureEngineering):
         features['stoch_k'] = (stoch_k / 50) - 1  # Normalize to [-1, 1]
         features['stoch_d'] = (stoch_d / 50) - 1
 
-        # Rate of Change indicators
-        features['roc_5'] = df['Close'].pct_change(periods=5)
-        features['roc_10'] = df['Close'].pct_change(periods=10)
-        features['roc_20'] = df['Close'].pct_change(periods=20)
+        # Rate of Change indicators - handle insufficient data
+        min_periods_roc = min(len(df) - 1, 5)  # Ensure we have at least some data
+
+        # Only calculate ROC if we have enough data
+        if len(df) >= 6:
+            features['roc_5'] = df['Close'].pct_change(periods=5)
+        else:
+            features['roc_5'] = df['Close'].pct_change(periods=min_periods_roc)
+
+        if len(df) >= 11:
+            features['roc_10'] = df['Close'].pct_change(periods=10)
+        else:
+            features['roc_10'] = df['Close'].pct_change(periods=min_periods_roc)
+
+        if len(df) >= 21:
+            features['roc_20'] = df['Close'].pct_change(periods=20)
+        else:
+            features['roc_20'] = df['Close'].pct_change(periods=min_periods_roc)
 
         # Handle missing data
         features = self.handle_missing_data(features)
+
+        # For remaining NaN values (like the first values of ROC), fill with zeros
+        features = features.fillna(0)
 
         # Standardize ROC features (RSI and Stochastic already normalized)
         for col in ['roc_5', 'roc_10', 'roc_20']:
