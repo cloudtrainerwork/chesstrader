@@ -9,10 +9,11 @@ from unittest.mock import Mock, patch
 import sys
 import os
 
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+# Add project root to path for imports
+project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+sys.path.insert(0, project_root)
 
-from features.regime_features import (
+from src.features.regime_features import (
     PriceStructureFeatures,
     TrendIndicators,
     MomentumIndicators,
