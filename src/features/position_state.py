@@ -5,32 +5,36 @@ Provides comprehensive position state representation combining position models,
 Greeks calculations, and feature vector assembly for RL-based management.
 """
 
-from typing import Union, List
+from typing import Union, List, Optional
 import pandas as pd
 import numpy as np
 from datetime import datetime
 
-from .base import FeatureEngineering
 from .position_models import Position, PositionZones, StrategyType
+from .position_vector import PositionStateVector
 
 
-class PositionState(FeatureEngineering):
+class PositionState:
     """
     Position state feature engineering for options positions.
 
-    Calculates position-specific features including price zones, timing,
-    and spatial relationships for neural network input.
+    Provides both legacy interface and new 24-dimensional vector assembly
+    for neural network compatibility.
     """
+
+    def __init__(self):
+        """Initialize position state calculator."""
+        self.vector_assembler = PositionStateVector()
 
     def calculate(self, position: Position) -> pd.Series:
         """
-        Calculate position state features.
+        Calculate legacy position state features.
 
         Args:
             position: Position object to analyze
 
         Returns:
-            Series with position state features
+            Series with basic position state features
         """
         features = {}
 
@@ -64,8 +68,20 @@ class PositionState(FeatureEngineering):
             features['distance_to_lower_strike'] = 0.0
             features['distance_to_upper_strike'] = 0.0
 
-        # Normalize and validate
-        result = pd.Series(features)
-        result = self.standardize(result, method='zscore')
+        return pd.Series(features)
 
-        return result
+    def calculate_vector(self, position: Position,
+                        current_prices: Optional[List[int]] = None,
+                        iv_estimates: Optional[List[float]] = None) -> np.ndarray:
+        """
+        Calculate 24-dimensional position state vector.
+
+        Args:
+            position: Position object to analyze
+            current_prices: Current market prices (uses position.current_prices if None)
+            iv_estimates: IV estimates for each leg (estimated if None)
+
+        Returns:
+            24-dimensional numpy array with normalized features
+        """
+        return self.vector_assembler.calculate(position, current_prices, iv_estimates)
