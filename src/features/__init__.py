@@ -10,6 +10,11 @@ from .regime_features import (
     PriceStructureFeatures,
     TrendIndicators,
     MomentumIndicators,
+    VolatilityFeatures,
+    VolumeFeatures,
+    SupportResistanceFeatures,
+    MarketContextFeatures,
+    EventFeatures,
     RegimeStateVector
 )
 
@@ -18,5 +23,10 @@ __all__ = [
     "PriceStructureFeatures",
     "TrendIndicators",
     "MomentumIndicators",
+    "VolatilityFeatures",
+    "VolumeFeatures",
+    "SupportResistanceFeatures",
+    "MarketContextFeatures",
+    "EventFeatures",
     "RegimeStateVector",
 ]

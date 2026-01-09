@@ -298,6 +298,269 @@ class MomentumIndicators(FeatureEngineering):
         return features
 
 
+class VolatilityFeatures(FeatureEngineering):
+    """
+    Volatility features for regime detection (11 dimensions).
+
+    Note: Some features require external data sources and are stubbed for MVP.
+    """
+
+    def calculate_bollinger_bands(self, prices: pd.Series, window: int = 20,
+                                 std_mult: float = 2.0) -> Tuple[pd.Series, pd.Series, pd.Series]:
+        """Calculate Bollinger Bands."""
+        sma = calculate_sma(prices, window)
+        std = prices.rolling(window=window).std()
+        upper = sma + (std * std_mult)
+        lower = sma - (std * std_mult)
+        return upper, lower, sma
+
+    def calculate_atr(self, high: pd.Series, low: pd.Series, close: pd.Series,
+                     period: int = 14) -> pd.Series:
+        """Calculate Average True Range."""
+        tr1 = high - low
+        tr2 = np.abs(high - close.shift(1))
+        tr3 = np.abs(low - close.shift(1))
+        tr = pd.DataFrame({'tr1': tr1, 'tr2': tr2, 'tr3': tr3}).max(axis=1)
+        return tr.rolling(window=period).mean()
+
+    def calculate(self, symbol: str) -> pd.DataFrame:
+        """Calculate volatility features for a symbol."""
+        df = self.get_data(symbol, days=300)
+        df = self.handle_missing_data(df)
+
+        features = pd.DataFrame(index=df.index)
+
+        # 1. Historical volatility (20-day rolling)
+        returns = df['Close'].pct_change()
+        features['historical_volatility_20'] = returns.rolling(20).std() * np.sqrt(252)  # Annualized
+
+        # 2-4. Implied volatility features (stubbed - would need options data)
+        features['implied_volatility'] = 0.2  # Stub with average IV
+        features['iv_rank'] = 0.5  # Stub with neutral rank
+        features['iv_percentile'] = 0.5  # Stub with neutral percentile
+
+        # 5-6. VIX features (stubbed - would need VIX data)
+        features['vix_level'] = 20.0  # Stub with average VIX
+        features['vix_percentile'] = 0.5  # Stub with neutral percentile
+
+        # 7. Term structure slope (stubbed - would need options data)
+        features['term_structure_slope'] = 0.0  # Stub with flat term structure
+
+        # 8. Put/call skew (stubbed - would need options data)
+        features['put_call_skew'] = 0.0  # Stub with neutral skew
+
+        # 9-10. Bollinger Bands features
+        bb_upper, bb_lower, bb_middle = self.calculate_bollinger_bands(df['Close'])
+        features['bollinger_band_width'] = (bb_upper - bb_lower) / bb_middle
+        features['bollinger_position'] = (df['Close'] - bb_lower) / (bb_upper - bb_lower)
+
+        # 11. ATR normalized by price
+        atr = self.calculate_atr(df['High'], df['Low'], df['Close'])
+        features['atr_normalized'] = atr / df['Close']
+
+        # Handle missing data and normalize
+        features = self.handle_missing_data(features)
+        features = features.fillna(0)
+
+        for col in features.columns:
+            features[col] = self.standardize(features[col], method='robust')
+
+        self.validate(features)
+        return features
+
+
+class VolumeFeatures(FeatureEngineering):
+    """Volume-based features for regime detection (3 dimensions)."""
+
+    def calculate_obv(self, close: pd.Series, volume: pd.Series) -> pd.Series:
+        """Calculate On Balance Volume."""
+        obv = pd.Series(index=close.index, dtype=float)
+        obv.iloc[0] = volume.iloc[0]
+
+        for i in range(1, len(close)):
+            if close.iloc[i] > close.iloc[i-1]:
+                obv.iloc[i] = obv.iloc[i-1] + volume.iloc[i]
+            elif close.iloc[i] < close.iloc[i-1]:
+                obv.iloc[i] = obv.iloc[i-1] - volume.iloc[i]
+            else:
+                obv.iloc[i] = obv.iloc[i-1]
+
+        return obv
+
+    def calculate(self, symbol: str) -> pd.DataFrame:
+        """Calculate volume features for a symbol."""
+        df = self.get_data(symbol, days=300)
+        df = self.handle_missing_data(df)
+
+        features = pd.DataFrame(index=df.index)
+
+        # 1. Volume ratio (current volume vs 20-day average)
+        avg_volume = df['Volume'].rolling(20).mean()
+        features['volume_ratio'] = df['Volume'] / avg_volume
+
+        # 2. OBV slope (10-day linear regression slope)
+        obv = self.calculate_obv(df['Close'], df['Volume'])
+        obv_slope = obv.rolling(10).apply(
+            lambda x: np.polyfit(range(len(x)), x, 1)[0] if len(x) == 10 else 0
+        )
+        features['obv_slope'] = obv_slope
+
+        # 3. Volume trend (5-day EMA slope)
+        volume_ema = df['Volume'].ewm(span=5).mean()
+        volume_trend = volume_ema.rolling(5).apply(
+            lambda x: np.polyfit(range(len(x)), x, 1)[0] if len(x) == 5 else 0
+        )
+        features['volume_trend'] = volume_trend
+
+        # Handle missing data and normalize
+        features = self.handle_missing_data(features)
+        features = features.fillna(0)
+
+        for col in features.columns:
+            features[col] = self.standardize(features[col], method='robust')
+
+        self.validate(features)
+        return features
+
+
+class SupportResistanceFeatures(FeatureEngineering):
+    """Support and resistance features for regime detection (6 dimensions)."""
+
+    def find_support_resistance_levels(self, high: pd.Series, low: pd.Series,
+                                     close: pd.Series, window: int = 20) -> Tuple[float, float]:
+        """Simple support/resistance identification using rolling min/max."""
+        recent_high = high.rolling(window).max().iloc[-1]
+        recent_low = low.rolling(window).min().iloc[-1]
+        return recent_low, recent_high
+
+    def calculate(self, symbol: str) -> pd.DataFrame:
+        """Calculate support/resistance features for a symbol."""
+        df = self.get_data(symbol, days=300)
+        df = self.handle_missing_data(df)
+
+        features = pd.DataFrame(index=df.index)
+
+        # Calculate rolling support/resistance levels
+        support_levels = []
+        resistance_levels = []
+
+        for i in range(len(df)):
+            if i < 20:
+                support_levels.append(df['Low'].iloc[:i+1].min() if i > 0 else df['Low'].iloc[0])
+                resistance_levels.append(df['High'].iloc[:i+1].max() if i > 0 else df['High'].iloc[0])
+            else:
+                support_levels.append(df['Low'].iloc[i-20:i+1].min())
+                resistance_levels.append(df['High'].iloc[i-20:i+1].max())
+
+        support_series = pd.Series(support_levels, index=df.index)
+        resistance_series = pd.Series(resistance_levels, index=df.index)
+
+        # 1. Distance to support (negative if below support)
+        features['distance_to_support'] = (df['Close'] - support_series) / support_series
+
+        # 2. Support strength (how often price bounced off this level)
+        features['support_strength'] = 0.5  # Stub - would need bounce detection
+
+        # 3. Distance to resistance (positive if below resistance)
+        features['distance_to_resistance'] = (resistance_series - df['Close']) / resistance_series
+
+        # 4. Resistance strength (how often price was rejected at this level)
+        features['resistance_strength'] = 0.5  # Stub - would need rejection detection
+
+        # 5. Consolidation score (range tightness)
+        range_20d = (df['High'].rolling(20).max() - df['Low'].rolling(20).min())
+        features['consolidation_score'] = range_20d / df['Close']
+
+        # 6. Range width (current range relative to average)
+        current_range = (df['High'] - df['Low']) / df['Close']
+        avg_range = current_range.rolling(20).mean()
+        features['range_width'] = current_range / avg_range
+
+        # Handle missing data and normalize
+        features = self.handle_missing_data(features)
+        features = features.fillna(0)
+
+        for col in features.columns:
+            features[col] = self.standardize(features[col], method='robust')
+
+        self.validate(features)
+        return features
+
+
+class MarketContextFeatures(FeatureEngineering):
+    """Market context features for regime detection (4 dimensions)."""
+
+    def calculate(self, symbol: str) -> pd.DataFrame:
+        """Calculate market context features for a symbol."""
+        df = self.get_data(symbol, days=300)
+        df = self.handle_missing_data(df)
+
+        features = pd.DataFrame(index=df.index)
+
+        # 1. SPY correlation (20-day rolling correlation with SPY)
+        if symbol != 'SPY':
+            try:
+                spy_data = self.get_data('SPY', days=300)
+                # Align dates and calculate correlation
+                aligned_data = pd.concat([df['Close'], spy_data['Close']], axis=1, keys=[symbol, 'SPY']).dropna()
+                if len(aligned_data) > 20:
+                    rolling_corr = aligned_data[symbol].rolling(20).corr(aligned_data['SPY'])
+                    # Reindex to match original data
+                    features['spy_correlation'] = rolling_corr.reindex(df.index).fillna(0.7)
+                else:
+                    features['spy_correlation'] = 0.7  # Default moderate correlation
+            except:
+                features['spy_correlation'] = 0.7  # Default if SPY data unavailable
+        else:
+            features['spy_correlation'] = 1.0  # Perfect correlation for SPY itself
+
+        # 2. Sector relative strength (stubbed - would need sector ETF data)
+        features['sector_relative_strength'] = 0.0  # Neutral relative strength
+
+        # 3. Market breadth (stubbed - would need broad market data)
+        features['market_breadth'] = 0.5  # Neutral breadth
+
+        # 4. Put/call ratio (stubbed - would need options market data)
+        features['put_call_ratio'] = 1.0  # Neutral put/call ratio
+
+        # Handle missing data and normalize
+        features = self.handle_missing_data(features)
+        features = features.fillna(0)
+
+        for col in features.columns:
+            features[col] = self.standardize(features[col], method='robust')
+
+        self.validate(features)
+        return features
+
+
+class EventFeatures(FeatureEngineering):
+    """Event-based features for regime detection (3 dimensions)."""
+
+    def calculate(self, symbol: str) -> pd.DataFrame:
+        """Calculate event features for a symbol."""
+        df = self.get_data(symbol, days=300)
+
+        features = pd.DataFrame(index=df.index)
+
+        # All event features are stubbed as they require external calendars
+        # 1. Days to earnings (stubbed - would need earnings calendar)
+        features['days_to_earnings'] = 30.0  # Assume average quarterly cycle
+
+        # 2. Days to FOMC meeting (stubbed - would need FOMC calendar)
+        features['days_to_fomc'] = 21.0  # Assume average meeting cycle
+
+        # 3. Days to options expiration (stubbed - would need options calendar)
+        features['days_to_opex'] = 10.0  # Assume average to monthly expiration
+
+        # Normalize to [-1, 1] range
+        for col in features.columns:
+            features[col] = self.standardize(features[col], method='minmax')
+
+        self.validate(features)
+        return features
+
+
 class RegimeStateVector(FeatureEngineering):
     """
     Complete 48-dimensional regime state vector assembler.
@@ -306,7 +569,12 @@ class RegimeStateVector(FeatureEngineering):
     - Price structure (6 dimensions)
     - Trend indicators (9 dimensions)
     - Momentum indicators (6 dimensions)
-    - Volatility and market context (27 dimensions) - placeholder for Task 3
+    - Volatility features (11 dimensions)
+    - Volume features (3 dimensions)
+    - Support/resistance (6 dimensions)
+    - Market context (4 dimensions)
+    - Event features (3 dimensions)
+    Total: 48 dimensions
     """
 
     def __init__(self):
@@ -314,32 +582,48 @@ class RegimeStateVector(FeatureEngineering):
         self.price_features = PriceStructureFeatures()
         self.trend_features = TrendIndicators()
         self.momentum_features = MomentumIndicators()
+        self.volatility_features = VolatilityFeatures()
+        self.volume_features = VolumeFeatures()
+        self.support_resistance_features = SupportResistanceFeatures()
+        self.market_context_features = MarketContextFeatures()
+        self.event_features = EventFeatures()
 
     def calculate(self, symbol: str) -> pd.Series:
         """
         Calculate complete 48-dimensional state vector for a symbol.
 
-        Note: Currently returns 21 dimensions (Tasks 1 & 2 complete).
-        Task 3 will add remaining 27 dimensions.
-
         Args:
             symbol: Stock symbol to analyze
 
         Returns:
-            Series with latest state vector (currently 21 dimensions)
+            Series with latest state vector (48 dimensions)
         """
         # Calculate all feature categories
         price_feat = self.price_features.calculate(symbol)
         trend_feat = self.trend_features.calculate(symbol)
         momentum_feat = self.momentum_features.calculate(symbol)
+        volatility_feat = self.volatility_features.calculate(symbol)
+        volume_feat = self.volume_features.calculate(symbol)
+        support_resistance_feat = self.support_resistance_features.calculate(symbol)
+        market_context_feat = self.market_context_features.calculate(symbol)
+        event_feat = self.event_features.calculate(symbol)
 
         # Combine features (take most recent values)
         latest_price = price_feat.iloc[-1]
         latest_trend = trend_feat.iloc[-1]
         latest_momentum = momentum_feat.iloc[-1]
+        latest_volatility = volatility_feat.iloc[-1]
+        latest_volume = volume_feat.iloc[-1]
+        latest_support_resistance = support_resistance_feat.iloc[-1]
+        latest_market_context = market_context_feat.iloc[-1]
+        latest_event = event_feat.iloc[-1]
 
         # Concatenate all features
-        state_vector = pd.concat([latest_price, latest_trend, latest_momentum])
+        state_vector = pd.concat([
+            latest_price, latest_trend, latest_momentum,
+            latest_volatility, latest_volume, latest_support_resistance,
+            latest_market_context, latest_event
+        ])
 
         # Validate final output
         self.validate(state_vector)
