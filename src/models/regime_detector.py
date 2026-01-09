@@ -92,6 +92,19 @@ class RegimeDetector(nn.Module):
         if x.dim() != 2 or x.size(1) != self.input_dim:
             raise ValueError(f"Expected input shape (N, {self.input_dim}), got {x.shape}")
 
+        # Handle single batch case for BatchNorm
+        single_batch = x.size(0) == 1
+        if single_batch and self.training:
+            # Use eval mode for BatchNorm with single samples
+            self.eval()
+            output = self._forward_impl(x)
+            self.train()
+            return output
+        else:
+            return self._forward_impl(x)
+
+    def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
+        """Internal forward implementation."""
         # Input layer with batch norm and activation
         x = self.input_layer(x)
         x = self.input_bn(x)
