@@ -6,7 +6,7 @@ system-wide configuration parameters.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -72,9 +72,9 @@ class SystemConfig:
 class Config:
     """Main configuration container."""
 
-    data_sources: DataSourceConfig = DataSourceConfig()
-    cache: CacheConfig = CacheConfig()
-    system: SystemConfig = SystemConfig()
+    data_sources: DataSourceConfig = field(default_factory=DataSourceConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
+    system: SystemConfig = field(default_factory=SystemConfig)
 
     def __post_init__(self):
         """Post-initialization to handle environment variables."""
