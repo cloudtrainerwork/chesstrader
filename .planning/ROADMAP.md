@@ -59,7 +59,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 03-01: Base strategy class and neutral strategies (Iron Condor, Iron Butterfly)
+- [x] 03-01: Base strategy class and neutral strategies (Iron Condor, Iron Butterfly)
 - [ ] 03-02: Directional strategies (Bull/Bear Call/Put Spreads)
 - [ ] 03-03: Volatility strategies (Straddles, Strangles)
 - [ ] 03-04: Advanced strategies (Calendar, Diagonal, Covered, Collar)
