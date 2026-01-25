@@ -17,7 +17,7 @@ None
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Data Pipeline & Features** - Establish data fetching and feature engineering foundation
-- [ ] **Phase 2: Regime Detection** - Build market regime classification system
+- [x] **Phase 2: Regime Detection** - Build market regime classification system
 - [ ] **Phase 3: Strategy Framework** - Implement core options strategies
 - [ ] **Phase 4: Neural Architecture** - Build spatial encoder and chess-inspired networks
 - [ ] **Phase 5: Strategy Selector** - Implement strategy ranking and selection
@@ -48,9 +48,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: Regime detector neural network
-- [ ] 02-02: Training data preparation and labeling
-- [ ] 02-03: Training loop and validation
+- [x] 02-01: Regime detector neural network
+- [x] 02-02: Training data preparation and labeling
+- [x] 02-03: Training loop and validation
 
 ### Phase 3: Strategy Framework
 **Goal**: Implement 16 core options strategies with standardized interface
