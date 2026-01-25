@@ -8,7 +8,7 @@ system-wide configuration parameters.
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 import dotenv
 
@@ -52,6 +52,48 @@ class CacheConfig:
 
 
 @dataclass
+class TrainingConfig:
+    """Training configuration for regime detection neural network."""
+
+    # Core hyperparameters
+    learning_rate: float = 1e-3
+    weight_decay: float = 1e-4
+    batch_size: int = 32
+    max_epochs: int = 100
+
+    # Early stopping
+    patience: int = 10
+    min_delta: float = 1e-4
+
+    # Loss function weights
+    loss_weights: Dict[str, float] = field(default_factory=lambda: {
+        'classification': 0.8,
+        'confidence': 0.2
+    })
+
+    # Learning rate scheduler
+    lr_scheduler_factor: float = 0.5
+    lr_scheduler_patience: int = 5
+    lr_scheduler_min_lr: float = 1e-6
+
+    # Training optimizations
+    gradient_clip_threshold: float = 1.0
+    mixed_precision: bool = True
+
+    # Device management
+    device: str = "auto"  # "auto", "cuda", "cpu"
+
+    # Validation and checkpointing
+    validation_frequency: int = 1  # Validate every N epochs
+    checkpoint_frequency: int = 5  # Save checkpoint every N epochs
+    max_checkpoints: int = 5  # Maximum number of checkpoints to keep
+
+    # Paths
+    checkpoint_dir: Path = Path("models/checkpoints")
+    logs_dir: Path = Path("logs/training")
+
+
+@dataclass
 class SystemConfig:
     """System-wide configuration settings."""
 
@@ -75,6 +117,7 @@ class Config:
     data_sources: DataSourceConfig = field(default_factory=DataSourceConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
     system: SystemConfig = field(default_factory=SystemConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
 
     def __post_init__(self):
         """Post-initialization to handle environment variables."""
@@ -91,6 +134,10 @@ class Config:
 
         # Ensure cache directory exists
         self.cache.cache_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Ensure training directories exist
+        self.training.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        self.training.logs_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Global configuration instance
