@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Data Pipeline & Features** - Establish data fetching and feature engineering foundation
 - [x] **Phase 2: Regime Detection** - Build market regime classification system
-- [ ] **Phase 3: Strategy Framework** - Implement core options strategies
+- [x] **Phase 3: Strategy Framework** - Implement core options strategies
 - [ ] **Phase 4: Neural Architecture** - Build spatial encoder and chess-inspired networks
 - [ ] **Phase 5: Strategy Selector** - Implement strategy ranking and selection
 - [ ] **Phase 6: RL Environment** - Create gym environment for position management
@@ -62,7 +62,7 @@ Plans:
 - [x] 03-01: Base strategy class and neutral strategies (Iron Condor, Iron Butterfly)
 - [x] 03-02: Directional strategies (Bull/Bear Call/Put Spreads)
 - [x] 03-03: Volatility strategies (Straddles, Strangles)
-- [ ] 03-04: Advanced strategies (Calendar, Diagonal, Covered, Collar)
+- [x] 03-04: Advanced strategies (Calendar, Diagonal, Covered, Collar)
 
 ### Phase 4: Neural Architecture
 **Goal**: Build spatial encoder with chess-inspired convolutional architecture
