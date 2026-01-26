@@ -135,8 +135,22 @@ class TrainingDataCollector:
 
         logger.info("Aligning features with regime labels")
 
+        # Ensure timezone consistency
+        regime_index = self._regime_data.index
+        feature_index = self._feature_data.index
+
+        # Convert both to timezone-naive if needed
+        if hasattr(regime_index, 'tz') and regime_index.tz is not None:
+            regime_index = regime_index.tz_localize(None)
+        if hasattr(feature_index, 'tz') and feature_index.tz is not None:
+            feature_index = feature_index.tz_localize(None)
+
+        # Update the indices
+        self._regime_data.index = regime_index
+        self._feature_data.index = feature_index
+
         # Find common date range
-        common_dates = self._regime_data.index.intersection(self._feature_data.index)
+        common_dates = regime_index.intersection(feature_index)
         logger.info(f"Found {len(common_dates)} common dates")
 
         # Align data
