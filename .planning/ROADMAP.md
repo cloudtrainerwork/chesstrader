@@ -19,8 +19,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Data Pipeline & Features** - Establish data fetching and feature engineering foundation
 - [x] **Phase 2: Regime Detection** - Build market regime classification system
 - [x] **Phase 3: Strategy Framework** - Implement core options strategies
-- [ ] **Phase 4: Neural Architecture** - Build spatial encoder and chess-inspired networks
-- [ ] **Phase 5: Strategy Selector** - Implement strategy ranking and selection
+- [x] **Phase 4: Neural Architecture** - Build spatial encoder and chess-inspired networks
+- [x] **Phase 5: Strategy Selector** - Implement strategy ranking and selection
 - [ ] **Phase 6: RL Environment** - Create gym environment for position management
 - [ ] **Phase 7: PPO Training** - Implement reinforcement learning trainer
 - [ ] **Phase 8: Position Manager** - Build actor-critic for position decisions
@@ -72,9 +72,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: Spatial encoder implementation
-- [ ] 04-02: Residual blocks and attention mechanism
-- [ ] 04-03: Chess weight transfer and adaptation
+- [x] 04-01: Spatial encoder implementation
+- [x] 04-02: Residual blocks and attention mechanism
+- [x] 04-03: Chess weight transfer and adaptation
 
 ### Phase 5: Strategy Selector
 **Goal**: Implement strategy ranking system given regime and market state
@@ -83,8 +83,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: Strategy selector network
-- [ ] 05-02: Scoring logic and recommendation engine
+- [x] 05-01: Strategy selector network
+- [x] 05-02: Scoring logic and recommendation engine
 
 ### Phase 6: RL Environment
 **Goal**: Create OpenAI Gym-compatible environment for position management
