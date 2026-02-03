@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 import numpy as np
 
 from .actions import ActionType
+from .reward_scaler import RewardScaler
 
 
 class RewardCalculator(ABC):
@@ -21,7 +22,8 @@ class RewardCalculator(ABC):
     def __init__(self,
                  sharpe_scaling: bool = True,
                  drawdown_threshold: float = 0.10,
-                 drawdown_penalty_factor: float = 0.5):
+                 drawdown_penalty_factor: float = 0.5,
+                 use_scaler: bool = True):
         """
         Initialize reward calculator.
 
@@ -29,14 +31,20 @@ class RewardCalculator(ABC):
             sharpe_scaling: Apply Sharpe ratio scaling to rewards
             drawdown_threshold: Threshold for applying drawdown penalty (10% default)
             drawdown_penalty_factor: Penalty multiplier when in drawdown (0.5 default)
+            use_scaler: Whether to use reward scaler for normalization
         """
         self.sharpe_scaling = sharpe_scaling
         self.drawdown_threshold = drawdown_threshold
         self.drawdown_penalty_factor = drawdown_penalty_factor
+        self.use_scaler = use_scaler
 
         # Track rolling statistics for Sharpe calculation
         self.returns_history = []
         self.max_history_size = 100
+
+        # Initialize reward scaler if enabled
+        if self.use_scaler:
+            self.scaler = RewardScaler()
 
     def calculate_reward(self,
                         position_state: Dict[str, Any],
@@ -80,6 +88,10 @@ class RewardCalculator(ABC):
 
         # Update returns history for Sharpe calculation
         self._update_returns_history(total_reward)
+
+        # Apply scaler if enabled
+        if self.use_scaler:
+            total_reward = self.scaler.scale_reward(total_reward)
 
         return total_reward
 
@@ -224,3 +236,5 @@ class RewardCalculator(ABC):
     def reset(self):
         """Reset calculator state for new episode."""
         self.returns_history = []
+        if self.use_scaler:
+            self.scaler.end_episode()
