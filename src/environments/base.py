@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from ..strategies.base import StrategyType
+from .actions import ActionType, PositionAdjustment, ActionValidator, calculate_action_cost
 
 
 @dataclass
@@ -74,8 +75,7 @@ class OptionsEnvironment(gym.Env):
         )
 
         # Define action space - 4 discrete actions
-        # Will be fully defined in Task 2
-        self.action_space = None  # Placeholder for Task 2
+        self.action_space = spaces.Discrete(4)
 
         # Environment parameters
         self.initial_capital = initial_capital
@@ -122,13 +122,162 @@ class OptionsEnvironment(gym.Env):
             done: Whether episode is finished
             info: Additional information
         """
-        # Placeholder implementation for Task 2
+        if self.position_state is None:
+            raise RuntimeError("Environment must be reset before stepping")
+
+        # Validate action
+        action_type = ActionType(action)
+        is_valid, invalid_reason = ActionValidator.is_action_valid(
+            action_type, self.position_state, self.current_step, self.max_steps
+        )
+
+        if not is_valid:
+            # Invalid action gets negative reward
+            reward = -10.0
+            info = {'invalid_action': True, 'reason': invalid_reason}
+        else:
+            # Execute the action
+            reward = self._execute_action(action_type)
+            info = {'invalid_action': False}
+
+        # Update market state (simplified simulation)
+        self._update_market_state()
+
+        # Increment step counter
+        self.current_step += 1
+
+        # Check terminal conditions
+        done = self._is_done()
+
+        # Update observation
         observation = self._get_observation()
-        reward = 0.0
-        done = False
-        info = {}
+
+        # Add additional info
+        info.update({
+            'position_pnl': self.position_state.unrealized_pnl if self.position_state else 0,
+            'capital': self.capital,
+            'step': self.current_step,
+            'action_type': action_type.name
+        })
 
         return observation, reward, done, info
+
+    def _execute_action(self, action: ActionType) -> float:
+        """
+        Execute the given action and return immediate reward.
+
+        Args:
+            action: Action to execute
+
+        Returns:
+            Immediate reward from the action
+        """
+        pos = self.position_state
+        action_cost = calculate_action_cost(action, pos)
+
+        if action == ActionType.HOLD:
+            # Small positive reward for holding profitable positions
+            if pos.unrealized_pnl > 0:
+                reward = pos.unrealized_pnl * 0.01  # 1% of P/L as reward
+            else:
+                reward = pos.unrealized_pnl * 0.005  # Smaller penalty for losses
+
+        elif action == ActionType.CLOSE:
+            # Realize the P/L
+            reward = pos.unrealized_pnl + action_cost
+            self.capital += pos.unrealized_pnl
+            self.position_state = None  # Position is closed
+
+        elif action == ActionType.ADJUST:
+            # Adjust the position
+            adjustment = PositionAdjustment.adjust_position(pos, pos.current_price)
+            pos.strikes = adjustment['new_strikes']
+            adjustment_cost = adjustment['cost'] + action_cost
+            reward = -adjustment_cost  # Cost of adjustment
+            self.capital -= adjustment_cost
+
+        elif action == ActionType.ROLL:
+            # Roll to next expiration
+            roll = PositionAdjustment.roll_position(pos)
+            pos.days_to_expiry = roll['new_expiry']
+            roll_cost = roll['cost'] + action_cost
+            reward = -roll_cost  # Cost of rolling
+            self.capital -= roll_cost
+        else:
+            reward = 0.0
+
+        return reward
+
+    def _update_market_state(self):
+        """Update market prices and Greeks (simplified simulation)."""
+        if self.position_state is None:
+            return
+
+        pos = self.position_state
+
+        # Simple random walk for price
+        if hasattr(self, 'np_random'):
+            price_change = self.np_random.normal(0, pos.current_price * 0.01)
+        else:
+            price_change = np.random.normal(0, pos.current_price * 0.01)
+
+        pos.current_price += price_change
+
+        # Update days to expiry
+        pos.days_to_expiry = max(0, pos.days_to_expiry - 1)
+
+        # Simple P/L calculation based on price movement
+        price_move_pct = (pos.current_price - pos.entry_price) / pos.entry_price
+
+        # Simplified P/L for Iron Condor (profitable in range)
+        if pos.strategy_type == StrategyType.IRON_CONDOR:
+            # Profitable if price stays between inner strikes
+            lower_strike = pos.strikes[1]
+            upper_strike = pos.strikes[2]
+
+            if lower_strike <= pos.current_price <= upper_strike:
+                # In profit zone
+                pos.unrealized_pnl = pos.max_profit * (1 - pos.days_to_expiry / 30)
+            else:
+                # Outside profit zone
+                distance = min(abs(pos.current_price - lower_strike),
+                             abs(pos.current_price - upper_strike))
+                pos.unrealized_pnl = -distance * 10  # Simplified loss calculation
+
+        # Update IV (random walk)
+        if hasattr(self, 'np_random'):
+            iv_change = self.np_random.normal(0, 0.01)
+        else:
+            iv_change = np.random.normal(0, 0.01)
+        pos.current_iv = max(0.05, pos.current_iv + iv_change)
+
+    def _is_done(self) -> bool:
+        """
+        Check if episode is finished.
+
+        Terminal conditions:
+        - Position closed
+        - Max steps reached
+        - Days to expiry <= 0
+        - Max loss exceeded
+        """
+        # No position means it was closed
+        if self.position_state is None:
+            return True
+
+        # Max steps reached
+        if self.current_step >= self.max_steps:
+            return True
+
+        # Option expired
+        if self.position_state.days_to_expiry <= 0:
+            return True
+
+        # Max loss exceeded (risk management)
+        if self.position_state.unrealized_pnl < self.position_state.max_loss * 1.5:
+            return True
+
+        return False
 
     def _create_initial_position(self) -> PositionState:
         """Create a random initial position for training."""
