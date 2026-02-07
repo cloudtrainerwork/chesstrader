@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Strategy Framework** - Implement core options strategies
 - [x] **Phase 4: Neural Architecture** - Build spatial encoder and chess-inspired networks
 - [x] **Phase 5: Strategy Selector** - Implement strategy ranking and selection
-- [ ] **Phase 6: RL Environment** - Create gym environment for position management
+- [x] **Phase 6: RL Environment** - Create gym environment for position management
 - [ ] **Phase 7: PPO Training** - Implement reinforcement learning trainer
 - [ ] **Phase 8: Position Manager** - Build actor-critic for position decisions
 - [ ] **Phase 9: Backtesting Engine** - Implement historical simulation framework
@@ -94,9 +94,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 06-01: Environment base class and observation/action spaces
-- [ ] 06-02: Strategy-specific reward functions
-- [ ] 06-03: Episode management and terminal conditions
+- [x] 06-01: Environment base class and observation/action spaces
+- [x] 06-02: Strategy-specific reward functions
+- [x] 06-03: Episode management and terminal conditions
 
 ### Phase 7: PPO Training
 **Goal**: Implement Proximal Policy Optimization trainer with curriculum learning
