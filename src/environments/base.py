@@ -13,6 +13,7 @@ from enum import Enum
 
 from ..strategies.base import StrategyType
 from .actions import ActionType, PositionAdjustment, ActionValidator, calculate_action_cost
+from .episode import EpisodeManager, TerminalReason
 
 
 @dataclass
@@ -86,6 +87,13 @@ class OptionsEnvironment(gym.Env):
         self.position_state: Optional[PositionState] = None
         self.capital = initial_capital
 
+        # Episode management
+        self.episode_manager = EpisodeManager(
+            max_steps=max_steps,
+            max_loss_threshold=0.20,
+            early_stop_bonus=5.0
+        )
+
         # Set random seed if provided
         if seed is not None:
             self.seed(seed)
@@ -100,6 +108,9 @@ class OptionsEnvironment(gym.Env):
         # Reset step counter
         self.current_step = 0
         self.capital = self.initial_capital
+
+        # Reset episode manager
+        self.episode_manager.reset()
 
         # Initialize a random position for training
         self.position_state = self._create_initial_position()
@@ -147,18 +158,28 @@ class OptionsEnvironment(gym.Env):
         self.current_step += 1
 
         # Check terminal conditions
-        done = self._is_done()
+        done, terminal_reward = self._is_done()
+        reward += terminal_reward
+
+        # Update episode statistics
+        current_pnl = self.position_state.unrealized_pnl if self.position_state else 0
+        self.episode_manager.update_stats(action_type.name, reward, current_pnl)
 
         # Update observation
         observation = self._get_observation()
 
         # Add additional info
         info.update({
-            'position_pnl': self.position_state.unrealized_pnl if self.position_state else 0,
+            'position_pnl': current_pnl,
             'capital': self.capital,
             'step': self.current_step,
-            'action_type': action_type.name
+            'action_type': action_type.name,
+            'terminal_reward': terminal_reward
         })
+
+        # Add episode summary if done
+        if done:
+            info['episode_summary'] = self.episode_manager.get_episode_summary()
 
         return observation, reward, done, info
 
@@ -251,33 +272,27 @@ class OptionsEnvironment(gym.Env):
             iv_change = np.random.normal(0, 0.01)
         pos.current_iv = max(0.05, pos.current_iv + iv_change)
 
-    def _is_done(self) -> bool:
+    def _is_done(self) -> Tuple[bool, float]:
         """
-        Check if episode is finished.
+        Check if episode is finished using episode manager.
 
-        Terminal conditions:
-        - Position closed
-        - Max steps reached
-        - Days to expiry <= 0
-        - Max loss exceeded
+        Returns:
+            Tuple of (is_done, terminal_reward)
         """
-        # No position means it was closed
-        if self.position_state is None:
-            return True
+        state = {
+            'position_state': self.position_state,
+            'position_closed': self.position_state is None,
+            'current_step': self.current_step
+        }
 
-        # Max steps reached
-        if self.current_step >= self.max_steps:
-            return True
+        is_terminal, reason = self.episode_manager.is_terminal(state)
 
-        # Option expired
-        if self.position_state.days_to_expiry <= 0:
-            return True
+        terminal_reward = 0.0
+        if is_terminal:
+            final_pnl = self.position_state.unrealized_pnl if self.position_state else 0
+            terminal_reward = self.episode_manager.calculate_terminal_reward(reason, final_pnl)
 
-        # Max loss exceeded (risk management)
-        if self.position_state.unrealized_pnl < self.position_state.max_loss * 1.5:
-            return True
-
-        return False
+        return is_terminal, terminal_reward
 
     def _create_initial_position(self) -> PositionState:
         """Create a random initial position for training."""
