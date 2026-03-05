@@ -23,7 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Strategy Selector** - Implement strategy ranking and selection
 - [x] **Phase 6: RL Environment** - Create gym environment for position management
 - [x] **Phase 7: PPO Training** - Implement reinforcement learning trainer
-- [ ] **Phase 8: Position Manager** - Build actor-critic for position decisions
+- [x] **Phase 8: Position Manager** - Build actor-critic for position decisions
 - [ ] **Phase 9: Backtesting Engine** - Implement historical simulation framework
 - [ ] **Phase 10: Integration & API** - Create unified interface and CLI
 
@@ -106,9 +106,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 07-01: PPO algorithm implementation
-- [ ] 07-02: Curriculum learning framework
-- [ ] 07-03: Training loop with logging and checkpoints
+- [x] 07-01: PPO algorithm implementation
+- [x] 07-02: Curriculum learning framework
+- [x] 07-03: Training loop with logging and checkpoints
 
 ### Phase 8: Position Manager
 **Goal**: Build actor-critic network for position management decisions
@@ -117,8 +117,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 08-01: Actor-critic network architecture
-- [ ] 08-02: Integration with PPO trainer
+- [x] 08-01: Actor-critic network architecture
+- [x] 08-02: Integration with PPO trainer
 
 ### Phase 9: Backtesting Engine
 **Goal**: Implement comprehensive backtesting with walk-forward optimization
@@ -128,10 +128,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 09-01: Event-driven backtesting engine
-- [ ] 09-02: Walk-forward optimization
-- [ ] 09-03: Monte Carlo simulation
-- [ ] 09-04: Performance metrics and reporting
+- [ ] 09-01-PLAN.md — Event-driven backtesting engine with realistic order execution
+- [ ] 09-02-PLAN.md — Walk-forward optimization system with strategy integration
+- [ ] 09-03-PLAN.md — Monte Carlo simulation for statistical validation
+- [ ] 09-04-PLAN.md — Performance reporting system and CLI interface
 
 ### Phase 10: Integration & API
 **Goal**: Create unified interface with CLI and programmatic API
