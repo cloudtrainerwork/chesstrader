@@ -57,6 +57,29 @@ class TestStrategyIntegrator:
         assert integrator.recommendation_engine is None
         assert integrator.position_manager is None
 
+    def test_real_ml_model_loading(self):
+        """Test loading real trained ML models"""
+        # This test should fail until real model loading is implemented
+        integrator = StrategyIntegrator()
+
+        # Mock model file paths that would exist in a real implementation
+        position_manager_path = "models/position_manager_trained.pth"
+        recommendation_engine_path = "models/recommendation_engine.pth"
+
+        # This should load actual models, not just log and continue
+        integrator.load_models(
+            position_manager_path=position_manager_path,
+            recommendation_engine_path=recommendation_engine_path
+        )
+
+        # Test should fail until real models are loaded
+        assert integrator.recommendation_engine is not None, "RecommendationEngine should be loaded"
+        assert integrator.position_manager is not None, "PositionManager should be loaded"
+
+        # Verify models have expected interface
+        assert hasattr(integrator.recommendation_engine, 'get_recommendations')
+        assert hasattr(integrator.position_manager, 'get_action') or hasattr(integrator.position_manager, 'predict')
+
     def test_ml_signal_generation(self):
         """Test ML model signal generation"""
         # Create mock market data that should trigger signals
