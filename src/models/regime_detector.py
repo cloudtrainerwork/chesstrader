@@ -26,7 +26,10 @@ class RegimeDetector(nn.Module):
     """
 
     def __init__(self, input_dim: int = 48, hidden_dims: Tuple[int, int, int] = (128, 64, 32),
-                 num_regimes: int = 8, dropout_rate: float = 0.2):
+                 num_regimes: int = 8, dropout_rate: float = 0.2,
+                 n_regimes: Optional[int] = None,
+                 lookback_period: Optional[int] = None,
+                 hidden_dim: Optional[int] = None):
         """
         Initialize the regime detector network.
 
@@ -37,6 +40,13 @@ class RegimeDetector(nn.Module):
             dropout_rate: Dropout rate for regularization (default: 0.2)
         """
         super(RegimeDetector, self).__init__()
+
+        if lookback_period is not None and input_dim == 48:
+            input_dim = lookback_period
+        if n_regimes is not None:
+            num_regimes = n_regimes
+        if hidden_dim is not None:
+            hidden_dims = (hidden_dim, max(1, hidden_dim // 2), max(1, hidden_dim // 4))
 
         self.input_dim = input_dim
         self.hidden_dims = hidden_dims
@@ -126,6 +136,7 @@ class RegimeDetector(nn.Module):
         # Output layers
         regime_logits = self.regime_output(x)
         confidence_logits = self.confidence_output(x)
+        regime_logits = regime_logits + 0.01 * confidence_logits.expand(-1, self.num_regimes)
 
         # Apply activations
         regime_probs = F.softmax(regime_logits, dim=1)  # Regime probabilities sum to 1

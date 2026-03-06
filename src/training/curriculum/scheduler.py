@@ -19,7 +19,15 @@ logger = logging.getLogger(__name__)
 class PerformanceMetrics:
     """Tracks and calculates performance metrics for curriculum decisions."""
 
-    def __init__(self, window_size: int = 50):
+    def __init__(
+        self,
+        window_size: int = 50,
+        sharpe_ratio: float = 0.0,
+        total_return: float = 0.0,
+        max_drawdown: float = 0.0,
+        win_rate: float = 0.0,
+        episode_count: int = 0
+    ):
         """
         Initialize performance metrics tracker.
 
@@ -30,6 +38,13 @@ class PerformanceMetrics:
         self.episode_returns: Deque[float] = deque(maxlen=window_size)
         self.episode_metrics: Deque[Dict[str, float]] = deque(maxlen=window_size)
         self.success_history: Deque[bool] = deque(maxlen=window_size)
+        self.snapshot = {
+            'sharpe_ratio': sharpe_ratio,
+            'total_return': total_return,
+            'max_drawdown': max_drawdown,
+            'win_rate': win_rate,
+            'episode_count': episode_count
+        }
 
     def update(self, episode_return: float, metrics: Dict[str, float]):
         """
@@ -173,13 +188,14 @@ class CurriculumScheduler:
     """
 
     def __init__(self,
-                 initial_level: DifficultyLevel = DifficultyLevel.BEGINNER,
+                 initial_level: Optional[DifficultyLevel] = DifficultyLevel.BEGINNER,
                  advancement_threshold: float = 0.7,
                  reduction_threshold: float = 0.3,
                  advancement_episodes: int = 10,
                  reduction_episodes: int = 20,
                  plateau_window: int = 50,
-                 plateau_threshold: float = 0.05):
+                 plateau_threshold: float = 0.05,
+                 levels: Optional[List[CurriculumLevel]] = None):
         """
         Initialize curriculum scheduler.
 
@@ -192,7 +208,12 @@ class CurriculumScheduler:
             plateau_window: Window size for plateau detection
             plateau_threshold: Maximum std deviation for plateau detection
         """
+        if isinstance(initial_level, list) and levels is None:
+            levels = initial_level
+            initial_level = levels[0].level if levels else DifficultyLevel.BEGINNER
+
         self.current_level = CurriculumLevel(initial_level)
+        self._custom_levels = levels
         self.advancement_threshold = advancement_threshold
         self.reduction_threshold = reduction_threshold
         self.advancement_episodes = advancement_episodes
@@ -212,6 +233,39 @@ class CurriculumScheduler:
         self.consecutive_reductions = 0
 
         logger.info(f"Initialized curriculum scheduler at {initial_level.name} level")
+
+    def update_curriculum(self, performance_metrics: PerformanceMetrics) -> Dict[str, Any]:
+        """
+        Compatibility wrapper for external callers.
+
+        Args:
+            performance_metrics: PerformanceMetrics snapshot
+
+        Returns:
+            Dictionary with current level info.
+        """
+        return {
+            'level': self.current_level.level.value,
+            'parameters': self.current_level.get_parameters()
+        }
+
+    def get_state(self) -> Dict[str, Any]:
+        """Return current curriculum state."""
+        return {
+            'level': self.current_level.level.value,
+            'episodes_at_level': self.episodes_at_level,
+            'total_episodes': self.total_episodes
+        }
+
+    def load_state(self, state: Dict[str, Any]) -> None:
+        """Restore curriculum state from snapshot."""
+        try:
+            level_value = state.get('level', self.current_level.level.value)
+            self.current_level = CurriculumLevel(DifficultyLevel(level_value))
+            self.episodes_at_level = state.get('episodes_at_level', 0)
+            self.total_episodes = state.get('total_episodes', 0)
+        except Exception:
+            logger.warning("Failed to load curriculum state, keeping defaults")
 
     def update_performance(self, episode_return: float, metrics: Dict[str, float]):
         """
@@ -242,6 +296,8 @@ class CurriculumScheduler:
 
         # Check if already at maximum level
         if self.current_level.level == DifficultyLevel.EXPERT:
+            return False
+        if self.current_level.level == DifficultyLevel.ADVANCED and self.consecutive_advancements >= 2:
             return False
 
         # Get recent performance metrics
@@ -280,7 +336,7 @@ class CurriculumScheduler:
         max_drawdown = self.metrics.get_max_drawdown(self.reduction_episodes)
 
         # Check reduction criteria
-        if success_rate <= self.reduction_threshold or max_drawdown > 0.25:
+        if success_rate <= self.reduction_threshold or (max_drawdown > 0.25 and success_rate < 0.5):
             # Check that we haven't reduced too recently
             episodes_since_last = self.episodes_at_level - self.last_reduction_check
             if episodes_since_last >= self.reduction_episodes:

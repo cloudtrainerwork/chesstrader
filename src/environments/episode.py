@@ -92,8 +92,10 @@ class EpisodeManager:
         # Max loss exceeded
         unrealized_pnl = getattr(position_state, 'unrealized_pnl', 0)
         max_loss = getattr(position_state, 'max_loss', -1000)
-        if max_loss < 0 and unrealized_pnl < max_loss * (1 + self.max_loss_threshold):
-            return True, TerminalReason.MAX_LOSS_EXCEEDED
+        if max_loss < 0:
+            loss_limit = -abs(max_loss) * self.max_loss_threshold
+            if unrealized_pnl < loss_limit:
+                return True, TerminalReason.MAX_LOSS_EXCEEDED
 
         # Max steps reached
         current_step = state.get('current_step', 0)
@@ -123,8 +125,12 @@ class EpisodeManager:
 
         # Update P/L tracking
         self.stats.total_pnl = pnl
-        self.stats.max_pnl = max(self.stats.max_pnl, pnl)
-        self.stats.min_pnl = min(self.stats.min_pnl, pnl)
+        if self.stats.steps_taken == 1:
+            self.stats.max_pnl = pnl
+            self.stats.min_pnl = pnl
+        else:
+            self.stats.max_pnl = max(self.stats.max_pnl, pnl)
+            self.stats.min_pnl = min(self.stats.min_pnl, pnl)
 
         # Calculate drawdown
         if self.stats.max_pnl > 0:

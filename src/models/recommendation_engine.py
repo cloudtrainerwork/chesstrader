@@ -17,7 +17,7 @@ import pandas as pd
 from .scoring_engine import ScoringEngine, ScoredStrategy
 from .integrated_selector import IntegratedStrategySelector
 from ..strategies.base import StrategyType
-from ..features.regime_detector import RegimeType
+from ..data.regime_labeler import RegimeType
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +143,30 @@ class RecommendationEngine:
 
         return recommendations
 
+    def get_recommendations(self,
+                            market_data: Dict[str, Any],
+                            regime_features: np.ndarray,
+                            risk_metrics: Optional[Dict[StrategyType, Dict[str, float]]] = None,
+                            expected_returns: Optional[Dict[StrategyType, float]] = None) -> List[StrategyRecommendation]:
+        """
+        Compatibility wrapper for legacy callers.
+
+        Args:
+            market_data: Current market data
+            regime_features: Regime features
+            risk_metrics: Optional risk metrics per strategy
+            expected_returns: Optional expected returns per strategy
+
+        Returns:
+            List of strategy recommendations
+        """
+        return self.get_top_recommendations(
+            market_data,
+            regime_features,
+            risk_metrics=risk_metrics,
+            expected_returns=expected_returns
+        )
+
     def batch_recommend(self,
                        symbols: List[str],
                        market_data_batch: List[Dict[str, Any]],
@@ -207,6 +231,10 @@ class RecommendationEngine:
                     f"Strategy {strategy.strategy_type.value} not optimal for {regime.value} regime"
                 )
 
+        if not validated and strategies:
+            # Fallback to top strategy if none match regime constraints
+            validated = [strategies[0]]
+
         return validated
 
     def _is_strategy_valid_for_regime(self,
@@ -215,37 +243,38 @@ class RecommendationEngine:
         """Check if strategy is appropriate for market regime."""
         # Define strategy-regime compatibility
         compatibility = {
-            RegimeType.TRENDING_UP: [
+            RegimeType.BULL_TRENDING: [
                 StrategyType.BULL_CALL_SPREAD,
                 StrategyType.BULL_PUT_SPREAD,
-                StrategyType.COVERED_CALL,
-                StrategyType.DIAGONAL_SPREAD
+                StrategyType.SHORT_CALL,
+                StrategyType.CALENDAR_CALL
             ],
-            RegimeType.TRENDING_DOWN: [
+            RegimeType.BEAR_TRENDING: [
                 StrategyType.BEAR_PUT_SPREAD,
                 StrategyType.BEAR_CALL_SPREAD,
-                StrategyType.PROTECTIVE_COLLAR,
-                StrategyType.DIAGONAL_SPREAD
+                StrategyType.LONG_PUT,
+                StrategyType.CALENDAR_PUT
             ],
-            RegimeType.MEAN_REVERTING: [
+            RegimeType.SIDEWAYS_RANGING: [
                 StrategyType.IRON_CONDOR,
-                StrategyType.IRON_BUTTERFLY,
-                StrategyType.CALENDAR_SPREAD,
+                StrategyType.BUTTERFLY,
+                StrategyType.CALENDAR_CALL,
+                StrategyType.CALENDAR_PUT,
                 StrategyType.SHORT_STRADDLE,
                 StrategyType.SHORT_STRANGLE
             ],
             RegimeType.HIGH_VOLATILITY: [
                 StrategyType.LONG_STRADDLE,
                 StrategyType.LONG_STRANGLE,
-                StrategyType.CALENDAR_SPREAD,
-                StrategyType.DIAGONAL_SPREAD
+                StrategyType.CALENDAR_CALL,
+                StrategyType.CALENDAR_PUT
             ],
             RegimeType.LOW_VOLATILITY: [
                 StrategyType.IRON_CONDOR,
-                StrategyType.IRON_BUTTERFLY,
+                StrategyType.BUTTERFLY,
                 StrategyType.SHORT_STRADDLE,
                 StrategyType.SHORT_STRANGLE,
-                StrategyType.COVERED_CALL
+                StrategyType.SHORT_CALL
             ]
         }
 
@@ -260,8 +289,9 @@ class RecommendationEngine:
         """Check if strategy is regime-neutral."""
         neutral_strategies = [
             StrategyType.IRON_CONDOR,
-            StrategyType.IRON_BUTTERFLY,
-            StrategyType.CALENDAR_SPREAD
+            StrategyType.BUTTERFLY,
+            StrategyType.CALENDAR_CALL,
+            StrategyType.CALENDAR_PUT
         ]
         return strategy in neutral_strategies
 
@@ -334,7 +364,7 @@ class RecommendationEngine:
         )
 
         # Add strategy-specific insights
-        if strategy.strategy_type in [StrategyType.IRON_CONDOR, StrategyType.IRON_BUTTERFLY]:
+        if strategy.strategy_type in [StrategyType.IRON_CONDOR, StrategyType.BUTTERFLY]:
             explanations.append(
                 "Neutral strategy benefiting from time decay and range-bound markets"
             )
@@ -368,7 +398,7 @@ class RecommendationEngine:
                 'max_drawdown': 0.10, 'var_95': 0.04, 'win_rate': 0.65,
                 'avg_win': 1.0, 'avg_loss': 1.5, 'volatility': 0.15
             },
-            StrategyType.IRON_BUTTERFLY: {
+            StrategyType.BUTTERFLY: {
                 'max_drawdown': 0.12, 'var_95': 0.05, 'win_rate': 0.60,
                 'avg_win': 1.2, 'avg_loss': 1.5, 'volatility': 0.18
             },
@@ -396,21 +426,13 @@ class RecommendationEngine:
                 'max_drawdown': 0.25, 'var_95': 0.10, 'win_rate': 0.65,
                 'avg_win': 1.0, 'avg_loss': 2.5, 'volatility': 0.25
             },
-            StrategyType.CALENDAR_SPREAD: {
+            StrategyType.CALENDAR_CALL: {
                 'max_drawdown': 0.08, 'var_95': 0.03, 'win_rate': 0.60,
                 'avg_win': 1.5, 'avg_loss': 1.0, 'volatility': 0.12
             },
-            StrategyType.DIAGONAL_SPREAD: {
-                'max_drawdown': 0.10, 'var_95': 0.04, 'win_rate': 0.58,
-                'avg_win': 1.8, 'avg_loss': 1.0, 'volatility': 0.15
-            },
-            StrategyType.COVERED_CALL: {
-                'max_drawdown': 0.20, 'var_95': 0.08, 'win_rate': 0.70,
-                'avg_win': 0.5, 'avg_loss': 2.0, 'volatility': 0.20
-            },
-            StrategyType.PROTECTIVE_COLLAR: {
-                'max_drawdown': 0.05, 'var_95': 0.02, 'win_rate': 0.60,
-                'avg_win': 0.8, 'avg_loss': 0.5, 'volatility': 0.10
+            StrategyType.CALENDAR_PUT: {
+                'max_drawdown': 0.08, 'var_95': 0.03, 'win_rate': 0.60,
+                'avg_win': 1.5, 'avg_loss': 1.0, 'volatility': 0.12
             },
             StrategyType.BULL_PUT_SPREAD: {
                 'max_drawdown': 0.15, 'var_95': 0.06, 'win_rate': 0.60,
@@ -439,30 +461,30 @@ class RecommendationEngine:
         # Base returns by strategy type
         base_returns = {
             StrategyType.IRON_CONDOR: 0.08,
-            StrategyType.IRON_BUTTERFLY: 0.10,
+            StrategyType.BUTTERFLY: 0.10,
             StrategyType.BULL_CALL_SPREAD: 0.15,
             StrategyType.BEAR_PUT_SPREAD: 0.15,
             StrategyType.LONG_STRADDLE: 0.20,
             StrategyType.SHORT_STRADDLE: 0.12,
             StrategyType.LONG_STRANGLE: 0.25,
             StrategyType.SHORT_STRANGLE: 0.10,
-            StrategyType.CALENDAR_SPREAD: 0.06,
-            StrategyType.DIAGONAL_SPREAD: 0.08,
-            StrategyType.COVERED_CALL: 0.05,
-            StrategyType.PROTECTIVE_COLLAR: 0.03,
+            StrategyType.CALENDAR_CALL: 0.06,
+            StrategyType.CALENDAR_PUT: 0.06,
+            StrategyType.SHORT_CALL: 0.05,
+            StrategyType.LONG_PUT: 0.03,
             StrategyType.BULL_PUT_SPREAD: 0.12,
             StrategyType.BEAR_CALL_SPREAD: 0.12
         }
 
         # Adjust for regime
         regime_multipliers = {
-            RegimeType.TRENDING_UP: {
+            RegimeType.BULL_TRENDING: {
                 StrategyType.BULL_CALL_SPREAD: 1.3,
                 StrategyType.BULL_PUT_SPREAD: 1.2,
                 StrategyType.BEAR_PUT_SPREAD: 0.7,
                 StrategyType.BEAR_CALL_SPREAD: 0.7
             },
-            RegimeType.TRENDING_DOWN: {
+            RegimeType.BEAR_TRENDING: {
                 StrategyType.BEAR_PUT_SPREAD: 1.3,
                 StrategyType.BEAR_CALL_SPREAD: 1.2,
                 StrategyType.BULL_CALL_SPREAD: 0.7,
@@ -476,14 +498,15 @@ class RecommendationEngine:
             },
             RegimeType.LOW_VOLATILITY: {
                 StrategyType.IRON_CONDOR: 1.2,
-                StrategyType.IRON_BUTTERFLY: 1.2,
+                StrategyType.BUTTERFLY: 1.2,
                 StrategyType.SHORT_STRADDLE: 1.3,
                 StrategyType.SHORT_STRANGLE: 1.3
             },
-            RegimeType.MEAN_REVERTING: {
+            RegimeType.SIDEWAYS_RANGING: {
                 StrategyType.IRON_CONDOR: 1.3,
-                StrategyType.IRON_BUTTERFLY: 1.3,
-                StrategyType.CALENDAR_SPREAD: 1.2
+                StrategyType.BUTTERFLY: 1.3,
+                StrategyType.CALENDAR_CALL: 1.2,
+                StrategyType.CALENDAR_PUT: 1.2
             }
         }
 

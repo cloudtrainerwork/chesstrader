@@ -255,10 +255,12 @@ class ActorCritic(nn.Module):
         self,
         obs_dim: int = 35,
         action_dim: int = 4,
-        hidden_dims: List[int] = [512, 256, 128],
+        hidden_dims: Optional[List[int]] = None,
+        hidden_dim: Optional[int] = None,
         activation: str = 'relu',
         dropout: float = 0.0,
-        init_log_std: float = -0.5
+        init_log_std: float = -0.5,
+        device: Optional[str] = None
     ):
         """
         Initialize Actor-Critic network.
@@ -272,6 +274,11 @@ class ActorCritic(nn.Module):
             init_log_std: Initial log standard deviation
         """
         super().__init__()
+
+        if hidden_dims is None:
+            hidden_dims = [512, 256, 128]
+        if hidden_dim is not None:
+            hidden_dims = [hidden_dim]
 
         self.obs_dim = obs_dim
         self.action_dim = action_dim
@@ -289,6 +296,9 @@ class ActorCritic(nn.Module):
         # Actor and critic networks
         self.actor = Actor(feature_dim, action_dim, init_log_std)
         self.critic = Critic(feature_dim)
+
+        if device:
+            self.to(device)
 
     def forward(
         self,

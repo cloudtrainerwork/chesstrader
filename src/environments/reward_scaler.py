@@ -80,6 +80,7 @@ class RewardScaler:
         if add_exploration and self.exploration_bonus > 0:
             current_bonus = self._get_exploration_bonus()
             clipped += current_bonus
+            clipped = np.clip(clipped, self.clip_range[0], self.clip_range[1])
 
         return float(clipped)
 

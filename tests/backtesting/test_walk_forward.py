@@ -143,3 +143,39 @@ class TestWalkForwardIntegration:
             assert 'threshold' in row['best_params']
             assert isinstance(row['train_return'], (int, float))
             assert isinstance(row['test_return'], (int, float))
+
+    def test_real_backtest_integration(self):
+        """Test walk-forward optimization with real BacktestEngine integration"""
+        # This test should fail until real backtest integration is implemented
+        start_date = datetime(2023, 1, 1)
+        end_date = datetime(2023, 12, 31)  # Full year to ensure enough data
+
+        param_grid = ParameterGrid({
+            'lookback': [10, 20],
+            'threshold': [0.2, 0.3]
+        })
+
+        optimizer = WalkForwardOptimizer(train_window=126, test_window=63)
+
+        # Mock strategy config with realistic parameters
+        strategy_config = {
+            'strategy_type': 'BULL_CALL_SPREAD',
+            'symbol': 'SPY',
+            'initial_capital': 100000
+        }
+
+        # Run optimization
+        results = optimizer.optimize(start_date, end_date, param_grid, strategy_config)
+
+        # Verify real backtest was called (not mock)
+        # This should fail until _backtest_period is properly implemented
+        assert len(results) > 0
+
+        # Verify realistic performance metrics (not mock values)
+        for idx, row in results.iterrows():
+            # Returns should be realistic for options strategies
+            assert -0.5 <= row['train_return'] <= 2.0
+            assert -0.5 <= row['test_return'] <= 2.0
+            # Sharpe ratios should be realistic
+            assert -3.0 <= row['train_sharpe'] <= 3.0
+            assert -3.0 <= row['test_sharpe'] <= 3.0

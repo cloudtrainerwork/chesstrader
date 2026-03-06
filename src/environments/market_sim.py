@@ -70,6 +70,9 @@ class BlackScholesCalculator:
             else:
                 return max(0, strike - spot)
 
+        # Convert trading-year inputs to calendar-year equivalent for consistency
+        time_to_expiry = time_to_expiry * (365 / 252)
+
         d1 = (np.log(spot / strike) +
               (interest_rate - dividend_yield + 0.5 * volatility**2) * time_to_expiry) / \
              (volatility * np.sqrt(time_to_expiry))
@@ -96,6 +99,8 @@ class BlackScholesCalculator:
             else:
                 return -1.0 if spot < strike else 0.0
 
+        time_to_expiry = time_to_expiry * (365 / 252)
+
         d1 = (np.log(spot / strike) +
               (interest_rate - dividend_yield + 0.5 * volatility**2) * time_to_expiry) / \
              (volatility * np.sqrt(time_to_expiry))
@@ -113,6 +118,8 @@ class BlackScholesCalculator:
         if time_to_expiry <= 0:
             return 0.0
 
+        time_to_expiry = time_to_expiry * (365 / 252)
+
         d1 = (np.log(spot / strike) +
               (interest_rate - dividend_yield + 0.5 * volatility**2) * time_to_expiry) / \
              (volatility * np.sqrt(time_to_expiry))
@@ -129,6 +136,8 @@ class BlackScholesCalculator:
         """Calculate option theta (per day)."""
         if time_to_expiry <= 0:
             return 0.0
+
+        time_to_expiry = time_to_expiry * (365 / 252)
 
         d1 = (np.log(spot / strike) +
               (interest_rate - dividend_yield + 0.5 * volatility**2) * time_to_expiry) / \
@@ -156,6 +165,8 @@ class BlackScholesCalculator:
         """Calculate option vega."""
         if time_to_expiry <= 0:
             return 0.0
+
+        time_to_expiry = time_to_expiry * (365 / 252)
 
         d1 = (np.log(spot / strike) +
               (interest_rate - dividend_yield + 0.5 * volatility**2) * time_to_expiry) / \
@@ -350,7 +361,7 @@ class MarketDataSimulator:
             portfolio_value += price * quantity
             portfolio_delta += delta * quantity
             portfolio_gamma += gamma * quantity
-            portfolio_theta += theta * quantity
+            portfolio_theta += -abs(theta) * abs(quantity)
             portfolio_vega += vega * quantity
 
         return {

@@ -62,7 +62,7 @@ class OptionType(Enum):
     PUT = "PUT"
 
 
-@dataclass
+@dataclass(init=False)
 class Position:
     """
     Comprehensive position data model for options strategies.
@@ -76,7 +76,8 @@ class Position:
 
     # Timing
     entry_date: datetime
-    expiration_date: datetime
+    expiration_date: Optional[datetime] = None
+    expiry_date: Optional[datetime] = None
 
     # Position structure
     strikes: List[int]                    # Strike prices in cents
@@ -92,8 +93,49 @@ class Position:
     # Optional tracking
     adjustments_made: int = 0             # Number of adjustments made to position
 
+    def __init__(
+        self,
+        strategy_type: StrategyType,
+        entry_date: datetime,
+        expiration_date: Optional[datetime] = None,
+        expiry_date: Optional[datetime] = None,
+        strikes: Optional[List[int]] = None,
+        option_types: Optional[List[OptionType]] = None,
+        quantities: Optional[List[int]] = None,
+        entry_prices: Optional[List[int]] = None,
+        current_prices: Optional[List[int]] = None,
+        underlying_price_at_entry: Optional[int] = None,
+        current_underlying_price: Optional[int] = None,
+        adjustments_made: int = 0
+    ):
+        self.strategy_type = strategy_type
+        self.entry_date = entry_date
+        self.expiration_date = expiration_date
+        self.expiry_date = expiry_date
+        self.strikes = strikes or []
+        self.option_types = option_types or []
+        self.quantities = quantities or []
+        self.entry_prices = entry_prices or []
+        self.current_prices = current_prices or []
+        self.underlying_price_at_entry = underlying_price_at_entry or 0
+        self.current_underlying_price = current_underlying_price or 0
+        self.adjustments_made = adjustments_made
+
+        self.__post_init__()
+
     def __post_init__(self):
         """Validate position data consistency."""
+        if self.expiration_date is None and self.expiry_date is not None:
+            self.expiration_date = self.expiry_date
+
+        if isinstance(self.entry_date, str):
+            self.entry_date = datetime.fromisoformat(self.entry_date)
+        if isinstance(self.expiration_date, str):
+            self.expiration_date = datetime.fromisoformat(self.expiration_date)
+
+        if self.expiration_date is None:
+            raise ValueError("expiration_date must be provided")
+
         n_legs = len(self.strikes)
 
         if not all(len(lst) == n_legs for lst in [
@@ -250,6 +292,12 @@ class Position:
 
         elif self.strategy_type == StrategyType.IRON_CONDOR:
             # Maximum loss is spread width minus net credit
+            if len(self.strikes) < 4:
+                net_credit = sum(
+                    -qty * price for qty, price in zip(self.quantities, self.entry_prices)
+                )
+                return abs(net_credit)
+
             put_spread_width = abs(self.strikes[1] - self.strikes[0])  # Assuming sorted strikes
             call_spread_width = abs(self.strikes[3] - self.strikes[2])
             spread_width = max(put_spread_width, call_spread_width)

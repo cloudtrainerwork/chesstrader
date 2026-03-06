@@ -125,12 +125,12 @@ class PPOTrainer:
         # Initialize GAE calculator
         self.gae_calculator = GAECalculator(
             gamma=config.gamma,
-            lam=config.gae_lambda
+            lambda_=config.gae_lambda
         )
 
         # Initialize environments
         self.envs = [env_factory() for _ in range(config.n_envs)]
-        self.current_obs = [env.reset() for env in self.envs]
+        self.current_obs = [self._normalize_obs(env.reset()) for env in self.envs]
 
         # Training state
         self.global_step = 0
@@ -146,8 +146,32 @@ class PPOTrainer:
         # Metrics calculator
         self.metrics_calculator = MetricsCalculator()
 
-        logger.info(f"PPO Trainer initialized with {config.n_envs} environments")
-        logger.info(f"Target timesteps: {config.total_timesteps:,}")
+        logging.getLogger(__name__).info(
+            f"PPO Trainer initialized with {config.n_envs} environments"
+        )
+        logging.getLogger(__name__).info(
+            f"Target timesteps: {config.total_timesteps:,}"
+        )
+
+    def _normalize_obs(self, obs: Any) -> np.ndarray:
+        """
+        Normalize observation shape to match policy network input.
+
+        Args:
+            obs: Raw observation from environment
+
+        Returns:
+            1D numpy array with expected observation dimension
+        """
+        obs_array = np.array(obs, dtype=np.float32).reshape(-1)
+        target_dim = getattr(self.policy_network, 'obs_dim', obs_array.shape[0])
+
+        if obs_array.shape[0] > target_dim:
+            obs_array = obs_array[:target_dim]
+        elif obs_array.shape[0] < target_dim:
+            obs_array = np.pad(obs_array, (0, target_dim - obs_array.shape[0]))
+
+        return obs_array
 
     def train(self, total_timesteps: Optional[int] = None, eval_freq: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -163,7 +187,9 @@ class PPOTrainer:
         total_timesteps = total_timesteps or self.config.total_timesteps
         eval_freq = eval_freq or self.config.eval_freq
 
-        logger.info(f"Starting PPO training for {total_timesteps:,} timesteps")
+        logging.getLogger(__name__).info(
+            f"Starting PPO training for {total_timesteps:,} timesteps"
+        )
         start_time = time.time()
 
         # Log hyperparameters
@@ -173,7 +199,9 @@ class PPOTrainer:
         while self.global_step < total_timesteps:
             # Check for early stopping
             if self.steps_without_improvement >= self.config.early_stopping_patience:
-                logger.info(f"Early stopping triggered after {self.global_step} steps")
+                logging.getLogger(__name__).info(
+                    f"Early stopping triggered after {self.global_step} steps"
+                )
                 break
 
             # Collect trajectories
@@ -251,10 +279,9 @@ class PPOTrainer:
             PPOBuffer containing collected trajectories
         """
         buffer = PPOBuffer(
-            size=n_steps * self.config.n_envs,
-            obs_shape=self.current_obs[0].shape,
-            action_dim=self.envs[0].action_space.n if hasattr(self.envs[0].action_space, 'n')
-                      else self.envs[0].action_space.shape[0]
+            capacity=n_steps * self.config.n_envs,
+            obs_dim=self.current_obs[0].shape[0],
+            device=self.config.device
         )
 
         episode_returns = []
@@ -262,71 +289,63 @@ class PPOTrainer:
 
         for step in range(n_steps):
             with torch.no_grad():
-                # Convert observations to tensor
-                obs_tensor = torch.FloatTensor(
-                    np.array(self.current_obs)
-                ).to(self.device)
-
-                # Get actions and values
-                actions, log_probs, values, _ = self.policy_network(obs_tensor)
-
-                # Convert to numpy for environment interaction
-                if isinstance(actions, torch.Tensor):
-                    actions_np = actions.cpu().numpy()
+                obs_tensor = torch.FloatTensor(np.array(self.current_obs)).to(self.device)
+                if hasattr(self.policy_network, 'get_action'):
+                    actions, log_probs, values = self.policy_network.get_action(obs_tensor)
                 else:
-                    actions_np = actions
+                    outputs = self.policy_network(obs_tensor)
+                    if isinstance(outputs, (tuple, list)):
+                        if len(outputs) >= 3:
+                            actions, log_probs, values = outputs[:3]
+                        else:
+                            action_logits, values = outputs
+                            dist = torch.distributions.Categorical(logits=action_logits)
+                            actions = dist.sample()
+                            log_probs = dist.log_prob(actions)
+                    else:
+                        dist = torch.distributions.Categorical(logits=outputs)
+                        actions = dist.sample()
+                        log_probs = dist.log_prob(actions)
+                        values = torch.zeros(actions.shape, device=actions.device)
 
-                # Step environments
+                actions_np = actions.cpu().numpy() if isinstance(actions, torch.Tensor) else actions
+                log_probs_np = log_probs.cpu().numpy()
+                values_np = values.cpu().numpy().flatten()
+
                 next_obs = []
-                rewards = []
-                dones = []
-                infos = []
 
                 for i, (env, obs, action) in enumerate(zip(self.envs, self.current_obs, actions_np)):
                     next_ob, reward, done, info = env.step(action)
+                    next_ob = self._normalize_obs(next_ob)
+
+                    buffer.store_transition(
+                        obs=torch.FloatTensor(obs),
+                        action=int(action),
+                        reward=float(reward),
+                        value=float(values_np[i]),
+                        log_prob=float(log_probs_np[i]),
+                        done=done
+                    )
 
                     if done:
-                        # Log episode statistics
                         if 'episode' in info:
                             episode_returns.append(info['episode']['r'])
                             episode_lengths.append(info['episode']['l'])
-
-                        # Reset environment
-                        next_ob = env.reset()
+                        next_ob = self._normalize_obs(env.reset())
                         self.episode_count += 1
 
                     next_obs.append(next_ob)
-                    rewards.append(reward)
-                    dones.append(done)
-                    infos.append(info)
-
-                # Store transition in buffer
-                buffer.add(
-                    obs=np.array(self.current_obs),
-                    actions=actions_np,
-                    log_probs=log_probs.cpu().numpy(),
-                    values=values.cpu().numpy().flatten(),
-                    rewards=np.array(rewards),
-                    dones=np.array(dones)
-                )
 
                 self.current_obs = next_obs
 
-        # Compute final values for GAE
-        with torch.no_grad():
-            obs_tensor = torch.FloatTensor(np.array(self.current_obs)).to(self.device)
-            _, _, final_values, _ = self.policy_network(obs_tensor)
-            buffer.finish_path(final_values.cpu().numpy().flatten())
-
-        # Compute advantages and returns using GAE
-        buffer = self.gae_calculator.compute_gae(buffer)
+        buffer.compute_advantages_and_returns(self.gae_calculator)
 
         # Update episode statistics
         if episode_returns:
             self.episode_returns.extend(episode_returns)
             self.episode_lengths.extend(episode_lengths)
 
-        logger.debug(f"Collected {len(buffer)} transitions from {self.config.n_envs} environments")
+        logger.debug(f"Collected {buffer.size} transitions from {self.config.n_envs} environments")
 
         return buffer
 
@@ -341,12 +360,12 @@ class PPOTrainer:
             Dict containing training metrics
         """
         # Prepare data for training
-        obs = torch.FloatTensor(buffer.observations).to(self.device)
-        actions = torch.FloatTensor(buffer.actions).to(self.device)
-        old_log_probs = torch.FloatTensor(buffer.log_probs).to(self.device)
-        values = torch.FloatTensor(buffer.values).to(self.device)
-        advantages = torch.FloatTensor(buffer.advantages).to(self.device)
-        returns = torch.FloatTensor(buffer.returns).to(self.device)
+        obs = torch.as_tensor(buffer.observations, device=self.device, dtype=torch.float32)
+        actions = torch.as_tensor(buffer.actions, device=self.device, dtype=torch.long)
+        old_log_probs = torch.as_tensor(buffer.log_probs, device=self.device, dtype=torch.float32)
+        values = torch.as_tensor(buffer.values, device=self.device, dtype=torch.float32)
+        advantages = torch.as_tensor(buffer.advantages, device=self.device, dtype=torch.float32)
+        returns = torch.as_tensor(buffer.returns, device=self.device, dtype=torch.float32)
 
         # Normalize advantages
         if self.config.normalize_advantages:
@@ -403,7 +422,7 @@ class PPOTrainer:
             lengths = []
 
             for _ in range(n_episodes):
-                obs = eval_env.reset()
+                obs = self._normalize_obs(eval_env.reset())
                 episode_return = 0.0
                 episode_length = 0
                 done = False
@@ -411,12 +430,21 @@ class PPOTrainer:
                 while not done:
                     with torch.no_grad():
                         obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-                        action, _, _, _ = self.policy_network(obs_tensor)
+                        if hasattr(self.policy_network, 'get_action'):
+                            action, _, _ = self.policy_network.get_action(obs_tensor, deterministic=True)
+                        else:
+                            outputs = self.policy_network(obs_tensor)
+                            if isinstance(outputs, (tuple, list)) and len(outputs) >= 1:
+                                action = outputs[0]
+                            else:
+                                dist = torch.distributions.Categorical(logits=outputs)
+                                action = dist.sample()
 
                         if isinstance(action, torch.Tensor):
                             action = action.cpu().numpy()[0]
 
                     obs, reward, done, _ = eval_env.step(action)
+                    obs = self._normalize_obs(obs)
                     episode_return += reward
                     episode_length += 1
 
@@ -528,12 +556,22 @@ class PPOTrainer:
 
     def get_training_state(self) -> Dict[str, Any]:
         """Get current training state for monitoring."""
+        curriculum_level = None
+        if hasattr(self.curriculum_scheduler, 'current_level'):
+            current_level = self.curriculum_scheduler.current_level
+            curriculum_level = getattr(current_level, 'name', current_level)
+        elif hasattr(self.curriculum_scheduler, 'get_state'):
+            try:
+                curriculum_level = self.curriculum_scheduler.get_state().get('level')
+            except Exception:
+                curriculum_level = None
+
         return {
             'global_step': self.global_step,
             'episode_count': self.episode_count,
             'best_performance': self.best_performance,
             'steps_without_improvement': self.steps_without_improvement,
-            'curriculum_level': self.curriculum_scheduler.current_level.name,
+            'curriculum_level': curriculum_level,
             'recent_episode_returns': self.episode_returns[-10:] if self.episode_returns else [],
             'recent_episode_lengths': self.episode_lengths[-10:] if self.episode_lengths else []
         }

@@ -17,7 +17,7 @@ from ..models.integrated_selector import IntegratedStrategySelector
 from ..models.scoring_engine import ScoringEngine
 from ..models.spatial_net import SpatialNet
 from ..models.strategy_selector import StrategySelector
-from ..features.regime_detector import RegimeDetector
+from ..models.regime_detector import RegimeDetector
 from ..strategies.base import StrategyType
 
 logger = logging.getLogger(__name__)
@@ -333,9 +333,17 @@ class StrategyRecommender:
         Returns:
             Dictionary with strategy details
         """
+        strategy_type = None
         try:
             strategy_type = StrategyType(strategy_name)
         except ValueError:
+            normalized = strategy_name.strip().lower().replace(" ", "_")
+            for candidate in StrategyType:
+                if candidate.value == normalized:
+                    strategy_type = candidate
+                    break
+
+        if strategy_type is None:
             return {'error': f'Unknown strategy: {strategy_name}'}
 
         details = {
@@ -352,19 +360,21 @@ class StrategyRecommender:
         """Get strategy description."""
         descriptions = {
             StrategyType.IRON_CONDOR: "Neutral strategy selling OTM call and put spreads",
-            StrategyType.IRON_BUTTERFLY: "Neutral strategy selling ATM straddle with protection",
+            StrategyType.BUTTERFLY: "Neutral strategy selling ATM structure with protection",
             StrategyType.BULL_CALL_SPREAD: "Bullish strategy buying call and selling higher strike call",
             StrategyType.BEAR_PUT_SPREAD: "Bearish strategy buying put and selling lower strike put",
             StrategyType.LONG_STRADDLE: "Volatility strategy buying ATM call and put",
             StrategyType.SHORT_STRADDLE: "Neutral strategy selling ATM call and put",
             StrategyType.LONG_STRANGLE: "Volatility strategy buying OTM call and put",
             StrategyType.SHORT_STRANGLE: "Neutral strategy selling OTM call and put",
-            StrategyType.CALENDAR_SPREAD: "Time decay strategy with different expirations",
-            StrategyType.DIAGONAL_SPREAD: "Directional calendar spread with different strikes",
-            StrategyType.COVERED_CALL: "Income strategy selling calls against stock",
-            StrategyType.PROTECTIVE_COLLAR: "Protective strategy with put protection and call cap",
+            StrategyType.CALENDAR_CALL: "Time decay strategy with call expirations",
+            StrategyType.CALENDAR_PUT: "Time decay strategy with put expirations",
             StrategyType.BULL_PUT_SPREAD: "Bullish strategy selling put spread",
-            StrategyType.BEAR_CALL_SPREAD: "Bearish strategy selling call spread"
+            StrategyType.BEAR_CALL_SPREAD: "Bearish strategy selling call spread",
+            StrategyType.LONG_CALL: "Directional strategy buying a call option",
+            StrategyType.SHORT_CALL: "Directional strategy selling a call option",
+            StrategyType.LONG_PUT: "Directional strategy buying a put option",
+            StrategyType.SHORT_PUT: "Directional strategy selling a put option"
         }
         return descriptions.get(strategy, "Options strategy")
 
@@ -372,19 +382,21 @@ class StrategyRecommender:
         """Get risk profile description."""
         profiles = {
             StrategyType.IRON_CONDOR: "Limited risk, limited profit",
-            StrategyType.IRON_BUTTERFLY: "Limited risk, limited profit",
+            StrategyType.BUTTERFLY: "Limited risk, limited profit",
             StrategyType.BULL_CALL_SPREAD: "Limited risk, limited profit",
             StrategyType.BEAR_PUT_SPREAD: "Limited risk, limited profit",
             StrategyType.LONG_STRADDLE: "Limited risk, unlimited profit",
             StrategyType.SHORT_STRADDLE: "Unlimited risk, limited profit",
             StrategyType.LONG_STRANGLE: "Limited risk, unlimited profit",
             StrategyType.SHORT_STRANGLE: "Unlimited risk, limited profit",
-            StrategyType.CALENDAR_SPREAD: "Limited risk, limited profit",
-            StrategyType.DIAGONAL_SPREAD: "Limited risk, limited profit",
-            StrategyType.COVERED_CALL: "Limited upside, downside risk",
-            StrategyType.PROTECTIVE_COLLAR: "Limited risk, limited profit",
+            StrategyType.CALENDAR_CALL: "Limited risk, limited profit",
+            StrategyType.CALENDAR_PUT: "Limited risk, limited profit",
             StrategyType.BULL_PUT_SPREAD: "Limited risk, limited profit",
-            StrategyType.BEAR_CALL_SPREAD: "Limited risk, limited profit"
+            StrategyType.BEAR_CALL_SPREAD: "Limited risk, limited profit",
+            StrategyType.LONG_CALL: "Limited risk, unlimited profit",
+            StrategyType.SHORT_CALL: "Unlimited risk, limited profit",
+            StrategyType.LONG_PUT: "Limited risk, unlimited profit",
+            StrategyType.SHORT_PUT: "Unlimited risk, limited profit"
         }
         return profiles.get(strategy, "Variable risk profile")
 
@@ -392,19 +404,21 @@ class StrategyRecommender:
         """Get optimal market conditions."""
         conditions = {
             StrategyType.IRON_CONDOR: "Low volatility, range-bound markets",
-            StrategyType.IRON_BUTTERFLY: "Very low volatility, tight range",
+            StrategyType.BUTTERFLY: "Very low volatility, tight range",
             StrategyType.BULL_CALL_SPREAD: "Moderately bullish outlook",
             StrategyType.BEAR_PUT_SPREAD: "Moderately bearish outlook",
             StrategyType.LONG_STRADDLE: "High volatility expected",
             StrategyType.SHORT_STRADDLE: "Low volatility expected",
             StrategyType.LONG_STRANGLE: "Very high volatility expected",
             StrategyType.SHORT_STRANGLE: "Moderately low volatility",
-            StrategyType.CALENDAR_SPREAD: "Stable prices, IV changes",
-            StrategyType.DIAGONAL_SPREAD: "Gradual directional move",
-            StrategyType.COVERED_CALL: "Neutral to slightly bullish",
-            StrategyType.PROTECTIVE_COLLAR: "Concerned about downside",
+            StrategyType.CALENDAR_CALL: "Stable prices, IV changes",
+            StrategyType.CALENDAR_PUT: "Stable prices, IV changes",
             StrategyType.BULL_PUT_SPREAD: "Bullish with support level",
-            StrategyType.BEAR_CALL_SPREAD: "Bearish with resistance level"
+            StrategyType.BEAR_CALL_SPREAD: "Bearish with resistance level",
+            StrategyType.LONG_CALL: "Bullish breakout or trend",
+            StrategyType.SHORT_CALL: "Bearish or neutral with resistance",
+            StrategyType.LONG_PUT: "Bearish breakout or trend",
+            StrategyType.SHORT_PUT: "Bullish or neutral with support"
         }
         return conditions.get(strategy, "Various market conditions")
 
@@ -412,19 +426,21 @@ class StrategyRecommender:
         """Get typical return range."""
         returns = {
             StrategyType.IRON_CONDOR: "5-10% per month",
-            StrategyType.IRON_BUTTERFLY: "8-12% per month",
+            StrategyType.BUTTERFLY: "8-12% per month",
             StrategyType.BULL_CALL_SPREAD: "20-50% on risk",
             StrategyType.BEAR_PUT_SPREAD: "20-50% on risk",
             StrategyType.LONG_STRADDLE: "50-200% on large moves",
             StrategyType.SHORT_STRADDLE: "10-15% per month",
             StrategyType.LONG_STRANGLE: "100-500% on extreme moves",
             StrategyType.SHORT_STRANGLE: "8-12% per month",
-            StrategyType.CALENDAR_SPREAD: "5-8% per month",
-            StrategyType.DIAGONAL_SPREAD: "10-15% per month",
-            StrategyType.COVERED_CALL: "2-5% per month",
-            StrategyType.PROTECTIVE_COLLAR: "Protected downside",
+            StrategyType.CALENDAR_CALL: "5-8% per month",
+            StrategyType.CALENDAR_PUT: "5-8% per month",
             StrategyType.BULL_PUT_SPREAD: "10-15% per month",
-            StrategyType.BEAR_CALL_SPREAD: "10-15% per month"
+            StrategyType.BEAR_CALL_SPREAD: "10-15% per month",
+            StrategyType.LONG_CALL: "Variable, directional",
+            StrategyType.SHORT_CALL: "Limited, premium capture",
+            StrategyType.LONG_PUT: "Variable, directional",
+            StrategyType.SHORT_PUT: "Limited, premium capture"
         }
         return returns.get(strategy, "Variable returns")
 

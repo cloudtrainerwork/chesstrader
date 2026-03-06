@@ -37,7 +37,7 @@ class TestGAECalculator:
 
         assert gae.gamma == 0.99
         assert gae.lambda_ == 0.95
-        assert gae.device == 'cpu'
+        assert gae.device.type == 'cpu'
 
     def test_initialization_validation(self):
         """Test parameter validation during initialization."""

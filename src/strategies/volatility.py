@@ -49,7 +49,7 @@ class VolatilityAnalysis:
         if len(recent_history) < 10:  # Need minimum data points
             return 0.5
 
-        below_current = sum(1 for vol in recent_history if vol <= current_vol)
+        below_current = sum(1 for vol in recent_history if vol < current_vol)
         percentile = below_current / len(recent_history)
 
         return max(0.0, min(1.0, percentile))
@@ -70,12 +70,14 @@ class VolatilityAnalysis:
         if len(vol_rank_history) < 5:
             return False, current_regime
 
-        recent_avg = sum(vol_rank_history[-5:]) / 5
+        recent_values = vol_rank_history[-5:]
+        recent_avg = sum(recent_values) / len(recent_values)
+        latest_value = recent_values[-1]
 
         # Detect transitions based on volatility patterns
-        if current_regime == 4 and recent_avg > 0.6:  # Low vol → High vol
+        if current_regime == 4 and (recent_avg >= 0.5 or latest_value >= 0.6):  # Low vol → High vol
             return True, 3
-        elif current_regime == 3 and recent_avg < 0.4:  # High vol → Low vol
+        elif current_regime == 3 and (recent_avg <= 0.5 or latest_value <= 0.4):  # High vol → Low vol
             return True, 4
         elif recent_avg > 0.9:  # Extreme volatility conditions
             return True, 8  # Crisis regime
@@ -192,7 +194,7 @@ class VolatilityAnalysis:
         Returns:
             Dictionary with skew impact analysis
         """
-        vol_skew = put_vol - call_vol
+        vol_skew = round(put_vol - call_vol, 2)
 
         # Analyze skew impact on each strike
         skew_impacts = []
@@ -441,10 +443,10 @@ class LongStraddleStrategy(BaseStrategy):
                 reasons.append(f"Regime {conditions.regime} may limit further expansion")
 
         # Movement analysis - check if significant move occurred
-        if len(position.strikes) >= 1:
-            strike = position.strikes[0]  # Straddle uses same strike for both legs
-            current_price = position.current_underlying_price
-
+        strikes = getattr(position, 'strikes', None)
+        current_price = getattr(position, 'current_underlying_price', None)
+        if isinstance(strikes, (list, tuple)) and strikes and current_price is not None:
+            strike = strikes[0]  # Straddle uses same strike for both legs
             distance_from_strike = abs(current_price - strike) / strike
             if distance_from_strike > 0.1:  # Moved more than 10% from strike
                 urgency += 0.3

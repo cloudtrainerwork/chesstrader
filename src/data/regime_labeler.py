@@ -28,6 +28,8 @@ class RegimeType(IntEnum):
     RECOVERY = 5           # Post-decline bounce patterns
     DISTRIBUTION = 6       # Pre-decline weakening
     CRISIS = 7             # Extreme stress conditions
+    BULL_VOLATILE = 2      # Alias for high volatility bull environment
+    SIDEWAYS_LOW_VOL = 3   # Alias for low volatility sideways environment
 
 
 class RegimeMetrics:

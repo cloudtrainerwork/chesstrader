@@ -127,6 +127,8 @@ class BacktestEngine:
             # Get new market data (if available)
             if self.data_handler:
                 market_events = self.data_handler.get_market_events(self.current_time)
+                if market_events is None or not hasattr(market_events, '__iter__'):
+                    market_events = []
                 for event in market_events:
                     self.event_queue.put(event)
 
@@ -136,7 +138,11 @@ class BacktestEngine:
 
             # Advance time (this would typically be driven by data handler)
             if self.data_handler and hasattr(self.data_handler, 'advance_time'):
-                self.current_time = self.data_handler.advance_time()
+                next_time = self.data_handler.advance_time()
+                if isinstance(next_time, datetime):
+                    self.current_time = next_time
+                else:
+                    self.current_time += timedelta(days=1)
             else:
                 # Fallback: advance by one day
                 self.current_time += timedelta(days=1)

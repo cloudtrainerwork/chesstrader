@@ -109,7 +109,7 @@ class EvaluationResults:
         Total Return: {self.total_return:.2%}
         Sharpe Ratio: {self.sharpe_ratio:.3f}
         Max Drawdown: {self.max_drawdown:.2%}
-        Win Rate: {self.win_rate:.2%}
+        Win Rate: {self.win_rate:.1%}
         Total Episodes: {self.n_episodes}
         """
 
@@ -131,11 +131,14 @@ class PerformanceMetrics:
         Returns:
             Sharpe ratio
         """
-        if len(returns) == 0 or np.std(returns) == 0:
+        if len(returns) == 0 or np.isclose(np.std(returns), 0.0):
             return 0.0
 
         excess_returns = returns - risk_free_rate / 252  # Daily risk-free rate
-        return float(np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252))
+        excess_std = np.std(excess_returns)
+        if np.isclose(excess_std, 0.0):
+            return 0.0
+        return float(np.mean(excess_returns) / excess_std * np.sqrt(252))
 
     @staticmethod
     def sortino_ratio(returns: np.ndarray, target_return: float = 0.0) -> float:
@@ -500,7 +503,8 @@ class AgentEvaluator:
                     logger.warning(f"Episode {episode_id} exceeded 10000 steps, terminating")
                     done = True
 
-        env.close()
+        if hasattr(env, "close"):
+            env.close()
 
         # Calculate episode metrics
         episode_return = sum(episode_rewards)
@@ -554,7 +558,13 @@ class AgentEvaluator:
         expected_shortfall_95 = PerformanceMetrics.expected_shortfall(returns_array, 0.95)
 
         # Trading metrics
-        win_rate = PerformanceMetrics.win_rate(returns_array)
+        if len(episode_data) > 0:
+            flattened_rewards = np.array(
+                [reward for episode in episode_data for reward in episode.get('episode_rewards', [])]
+            )
+            win_rate = PerformanceMetrics.win_rate(flattened_rewards)
+        else:
+            win_rate = PerformanceMetrics.win_rate(returns_array)
         profit_factor = PerformanceMetrics.profit_factor(returns_array)
 
         # Trade analysis
@@ -791,7 +801,7 @@ class AgentEvaluator:
 - **Expected Shortfall (95%):** {results.expected_shortfall_95:.4f}
 
 ### Trading Performance
-- **Win Rate:** {results.win_rate:.2%}
+- **Win Rate:** {results.win_rate:.1%}
 - **Profit Factor:** {results.profit_factor:.2f}
 - **Total Trades:** {results.total_trades}
 - **Winning Trades:** {results.winning_trades}

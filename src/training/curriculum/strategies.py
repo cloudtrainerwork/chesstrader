@@ -354,8 +354,9 @@ class StraddleStrangleCurriculum(StrategyCurriculum):
 
     def get_strike_selection_rules(self, level: DifficultyLevel) -> Dict[str, Any]:
         """Straddle/Strangle strike selection progression."""
-        is_straddle = 'STRADDLE' in self.strategy_type.value
-        is_long = 'LONG' in self.strategy_type.value
+        strategy_name = self.strategy_type.name
+        is_straddle = 'STRADDLE' in strategy_name
+        is_long = 'LONG' in strategy_name
 
         if level == DifficultyLevel.BEGINNER:
             if is_straddle:
@@ -425,7 +426,7 @@ class StraddleStrangleCurriculum(StrategyCurriculum):
 
     def get_expiration_rules(self, level: DifficultyLevel) -> Dict[str, Any]:
         """Straddle/Strangle expiration timing progression."""
-        is_long = 'LONG' in self.strategy_type.value
+        is_long = 'LONG' in self.strategy_type.name
 
         if level == DifficultyLevel.BEGINNER:
             return {

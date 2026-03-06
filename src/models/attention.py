@@ -78,7 +78,17 @@ class PositionalEncoding(nn.Module):
         Returns:
             Input with positional encoding added
         """
-        return x + self.pos_embedding
+        if x.shape[-2:] != (self.height, self.width):
+            pos_embedding = F.interpolate(
+                self.pos_embedding,
+                size=x.shape[-2:],
+                mode='bilinear',
+                align_corners=False
+            )
+        else:
+            pos_embedding = self.pos_embedding
+
+        return x + pos_embedding
 
 
 class SpatialAttention(nn.Module):

@@ -21,7 +21,7 @@ class MarketEncoderConfig:
     """Configuration for market encoding parameters."""
     confidence_threshold: float = 0.5
     regime_smoothing: bool = True
-    include_uncertainty: bool = True
+    include_uncertainty: bool = False
     spatial_config: Optional[SpatialConfig] = None
 
 
@@ -57,7 +57,8 @@ class MarketEncoder(nn.Module):
 
         # Channel configuration
         self.num_base_channels = 3  # Position + Regime + Confidence
-        self.num_regimes = regime_detector.num_regimes
+        num_regimes = getattr(regime_detector, 'num_regimes', 8)
+        self.num_regimes = num_regimes if isinstance(num_regimes, int) else 8
 
         # Regime mapping to spatial representation
         self._setup_regime_mapping()
@@ -133,12 +134,26 @@ class MarketEncoder(nn.Module):
         batch_size = market_features.shape[0]
 
         # 1. Get spatial position encoding
-        position_tensor = self.spatial_encoder.position_to_spatial(position)
-        if single_sample:
-            position_channel = position_tensor.unsqueeze(0)  # (1, 7, 6)
+        if torch.is_tensor(position):
+            position_tensor = position
+            if position_tensor.dim() == 4:
+                # (batch, channels, rows, cols) -> take first channel
+                position_channel = position_tensor[:, 0, :, :]
+            elif position_tensor.dim() == 3:
+                # (batch, rows, cols)
+                position_channel = position_tensor
+            elif position_tensor.dim() == 2:
+                # (rows, cols)
+                position_channel = position_tensor.unsqueeze(0)
+            else:
+                raise ValueError(f"Unsupported position tensor shape: {position_tensor.shape}")
         else:
-            # Repeat for batch
-            position_channel = position_tensor.unsqueeze(0).expand(batch_size, -1, -1)
+            position_tensor = self.spatial_encoder.position_to_spatial(position)
+            if single_sample:
+                position_channel = position_tensor.unsqueeze(0)  # (1, 7, 6)
+            else:
+                # Repeat for batch
+                position_channel = position_tensor.unsqueeze(0).expand(batch_size, -1, -1)
 
         # 2. Get regime predictions
         regime_output = self.regime_detector(market_features)
@@ -411,7 +426,7 @@ class MarketEncoder(nn.Module):
         if self.config.include_uncertainty:
             info['uncertainty'] = 3
 
-        info['total_channels'] = len(info) - 1  # Exclude total_channels key itself
+        info['total_channels'] = 3 + (1 if self.config.include_uncertainty else 0)
 
         return info
 

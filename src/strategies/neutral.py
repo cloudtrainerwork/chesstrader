@@ -260,7 +260,7 @@ class IronCondorStrategy(BaseStrategy):
         if len(strikes) != 4:
             raise ValueError("Iron Condor requires exactly 4 strikes")
 
-        short_put, long_put, long_call, short_call = strikes
+        long_put, short_put, long_call, short_call = strikes
 
         # Calculate spread widths
         put_spread_width = short_put - long_put
@@ -363,7 +363,7 @@ class IronCondorStrategy(BaseStrategy):
         if len(strikes) != 4:
             return False
 
-        short_put, long_put, long_call, short_call = strikes
+        long_put, short_put, long_call, short_call = strikes
 
         # Check strike ordering: long_put < short_put < long_call < short_call
         if not (long_put < short_put < long_call < short_call):

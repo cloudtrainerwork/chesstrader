@@ -211,6 +211,8 @@ class CheckpointManager:
             timestamp = time.time()
             checkpoint_data = {
                 **trainer_state,
+                'step': step,
+                'episode': trainer_state.get('episode', 0),
                 'checkpoint_metadata': {
                     'step': step,
                     'performance_metric': performance_metric,
@@ -222,46 +224,56 @@ class CheckpointManager:
                 }
             }
 
-            # Generate filename
+            regular_info = None
+
+            # Save best checkpoint if requested
             if is_best:
-                filename = f"best_model_step_{step}_perf_{performance_metric:.4f}.pt"
-                filepath = self.best_dir / filename
-            else:
+                best_filename = f"best_model_step_{step}_perf_{performance_metric:.4f}.pt"
+                best_filepath = self.best_dir / best_filename
+                torch.save(checkpoint_data, best_filepath)
+
+                self.best_checkpoint_info = CheckpointInfo(
+                    filepath=str(best_filepath),
+                    step=step,
+                    episode=trainer_state.get('episode', 0),
+                    performance_metric=performance_metric,
+                    timestamp=timestamp,
+                    file_size=best_filepath.stat().st_size,
+                    checksum=CheckpointInfo._calculate_checksum(str(best_filepath)),
+                    is_best=True
+                )
+
+            # Save regular checkpoint unless best-only is enabled
+            if not (is_best and self.save_best_only):
                 filename = f"checkpoint_step_{step}_episode_{trainer_state.get('episode', 0)}.pt"
                 filepath = self.models_dir / filename
+                torch.save(checkpoint_data, filepath)
 
-            # Save checkpoint
-            torch.save(checkpoint_data, filepath)
+                regular_info = CheckpointInfo(
+                    filepath=str(filepath),
+                    step=step,
+                    episode=trainer_state.get('episode', 0),
+                    performance_metric=performance_metric,
+                    timestamp=timestamp,
+                    file_size=filepath.stat().st_size,
+                    checksum=CheckpointInfo._calculate_checksum(str(filepath)),
+                    is_best=False
+                )
 
-            # Create checkpoint info
-            checkpoint_info = CheckpointInfo(
-                filepath=str(filepath),
-                step=step,
-                episode=trainer_state.get('episode', 0),
-                performance_metric=performance_metric,
-                timestamp=timestamp,
-                file_size=filepath.stat().st_size,
-                checksum=CheckpointInfo._calculate_checksum(str(filepath)),
-                is_best=is_best
-            )
-
-            # Update tracking
-            if is_best:
-                self.best_checkpoint_info = checkpoint_info
-            else:
-                self.checkpoint_info.append(checkpoint_info)
+                self.checkpoint_info.append(regular_info)
 
             # Save checkpoint metadata
             self._save_checkpoint_metadata()
 
             # Cleanup old checkpoints if needed
-            if self.auto_cleanup and not is_best:
+            if self.auto_cleanup and regular_info is not None:
                 self.cleanup_old_checkpoints()
 
-            logger.info(f"Checkpoint saved: {filepath}")
+            saved_path = str(self.best_checkpoint_info.filepath) if is_best else str(regular_info.filepath)
+            logger.info(f"Checkpoint saved: {saved_path}")
             logger.info(f"Step: {step}, Performance: {performance_metric:.4f}, Is Best: {is_best}")
 
-            return str(filepath)
+            return saved_path
 
         except Exception as e:
             logger.error(f"Failed to save checkpoint: {e}")
@@ -337,9 +349,11 @@ class CheckpointManager:
         if len(self.checkpoint_info) <= self.max_checkpoints:
             return
 
-        # Sort checkpoints by step (ascending) to remove oldest
+        # Sort checkpoints by step (ascending) to remove oldest, preserving best
         sorted_checkpoints = sorted(self.checkpoint_info, key=lambda x: x.step)
-        checkpoints_to_remove = sorted_checkpoints[:-self.max_checkpoints]
+        non_best = [info for info in sorted_checkpoints if not info.is_best]
+        keep_count = max(self.max_checkpoints - (len(sorted_checkpoints) - len(non_best)), 0)
+        checkpoints_to_remove = non_best[:-keep_count] if keep_count else non_best
 
         for checkpoint_info in checkpoints_to_remove:
             try:

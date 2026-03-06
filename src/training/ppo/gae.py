@@ -37,7 +37,7 @@ class GAECalculator:
         """
         self.gamma = gamma
         self.lambda_ = lambda_
-        self.device = device
+        self.device = torch.device(device)
 
         # Validate parameters
         if not (0.0 <= gamma <= 1.0):

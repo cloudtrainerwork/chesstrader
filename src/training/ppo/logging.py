@@ -78,13 +78,18 @@ class MetricsTracker:
         current_time = time.time()
 
         for name, value in metrics.items():
+            if value is None:
+                continue
             if isinstance(value, (torch.Tensor, np.ndarray)):
                 value = float(value)
 
-            if np.isfinite(value):  # Only track finite values
-                self.metrics[name].append(value)
-                self.global_metrics[name].append(value)
-                self.last_update[name] = current_time
+            try:
+                if np.isfinite(value):  # Only track finite values
+                    self.metrics[name].append(value)
+                    self.global_metrics[name].append(value)
+                    self.last_update[name] = current_time
+            except TypeError:
+                continue
 
     def get_recent_average(self, metric_name: str, window: Optional[int] = None) -> float:
         """
@@ -140,7 +145,7 @@ class MetricsTracker:
         Returns:
             Trend direction: 'increasing', 'decreasing', or 'stable'
         """
-        if metric_name not in self.metrics or len(self.metrics[metric_name]) < lookback:
+        if metric_name not in self.metrics or len(self.metrics[metric_name]) == 0:
             return 'stable'
 
         values = np.array(list(self.metrics[metric_name])[-lookback:])

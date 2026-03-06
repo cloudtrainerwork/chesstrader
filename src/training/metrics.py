@@ -35,6 +35,46 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+class MetricsCalculator:
+    """
+    Lightweight metrics calculator for training loops.
+
+    Provides simple performance metrics for PPO trainers and position manager.
+    """
+
+    def __init__(self,
+                 track_sharpe: bool = True,
+                 track_drawdown: bool = True,
+                 track_win_rate: bool = True):
+        self.track_sharpe = track_sharpe
+        self.track_drawdown = track_drawdown
+        self.track_win_rate = track_win_rate
+
+    def calculate(self, returns: np.ndarray) -> Dict[str, float]:
+        """Calculate basic performance metrics from episode returns."""
+        if returns is None or len(returns) == 0:
+            return {'total_return': 0.0, 'sharpe_ratio': 0.0, 'max_drawdown': 0.0, 'win_rate': 0.0}
+
+        returns = np.asarray(returns, dtype=float)
+        metrics = {'total_return': float(np.mean(returns))}
+
+        if self.track_sharpe:
+            std = float(np.std(returns))
+            metrics['sharpe_ratio'] = float(np.mean(returns) / std) if std > 0 else 0.0
+
+        if self.track_drawdown:
+            cumulative = np.cumsum(returns)
+            running_max = np.maximum.accumulate(cumulative)
+            drawdowns = running_max - cumulative
+            max_drawdown = float(np.max(drawdowns)) if len(drawdowns) > 0 else 0.0
+            metrics['max_drawdown'] = max_drawdown
+
+        if self.track_win_rate:
+            metrics['win_rate'] = float(np.mean(returns > 0))
+
+        return metrics
+
+
 def calculate_regime_metrics(predictions: np.ndarray, probabilities: np.ndarray,
                            labels: np.ndarray) -> Dict[str, Any]:
     """

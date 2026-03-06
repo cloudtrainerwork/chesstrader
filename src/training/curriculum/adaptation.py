@@ -93,7 +93,7 @@ class PerformanceAnalyzer:
         """
         self.window_size = window_size
         self.confidence_level = confidence_level
-        self.alpha = 1.0 - confidence_level
+        self.alpha = round(1.0 - confidence_level, 10)
 
     def analyze_trend(self, performance_history: List[float]) -> PerformanceTrend:
         """
@@ -176,8 +176,8 @@ class PerformanceAnalyzer:
         total_criteria = 4
 
         # 1. Low variance
-        normalized_var = np.var(y) / (np.abs(np.mean(y)) + 1e-8)
-        if normalized_var < 0.1:  # Low relative variance
+        normalized_std = np.std(y) / (np.abs(np.mean(y)) + 1e-8)
+        if normalized_std < 0.2:  # Low relative volatility
             criteria_met += 1
 
         # 2. Flat trend
@@ -199,6 +199,8 @@ class PerformanceAnalyzer:
             recent_mean = np.mean(recent_data)
             if abs(recent_mean - older_mean) < 0.05:  # No significant change
                 criteria_met += 1
+        else:
+            total_criteria -= 1
 
         # Determine plateau
         confidence = criteria_met / total_criteria
@@ -258,7 +260,9 @@ class AdaptiveCurriculum:
                  window_size: int = 50,
                  confidence_level: float = 0.95,
                  adaptation_sensitivity: float = 0.1,
-                 plateau_detection_window: int = 30):
+                 plateau_detection_window: int = 30,
+                 adaptation_cooldown: int = 10,
+                 emergency_threshold: float = 0.2):
         """
         Initialize adaptive curriculum system.
 
@@ -272,6 +276,8 @@ class AdaptiveCurriculum:
         self.confidence_level = confidence_level
         self.adaptation_sensitivity = adaptation_sensitivity
         self.plateau_detection_window = plateau_detection_window
+        self.adaptation_cooldown = adaptation_cooldown
+        self.emergency_threshold = emergency_threshold
 
         # Performance analysis
         self.analyzer = PerformanceAnalyzer(window_size, confidence_level)
@@ -283,8 +289,6 @@ class AdaptiveCurriculum:
 
         # Adaptation parameters
         self.last_adaptation = 0
-        self.adaptation_cooldown = 10  # Episodes to wait between adaptations
-        self.emergency_threshold = 0.2  # Threshold for emergency intervention
 
         logger.info(f"Initialized adaptive curriculum with window_size={window_size}")
 
@@ -313,7 +317,13 @@ class AdaptiveCurriculum:
             Dictionary with trend analysis metrics
         """
         if not self.performance_history:
-            return {'trend_slope': 0.0, 'volatility': 0.0, 'confidence': 0.0}
+            return {
+                'trend_slope': 0.0,
+                'volatility': 0.0,
+                'confidence': 0.0,
+                'is_improving': False,
+                'is_stable': True
+            }
 
         if episodes is None:
             episodes = min(self.window_size, len(self.performance_history))
@@ -510,16 +520,16 @@ class AdaptiveCurriculum:
         Returns:
             True if adaptation should be performed
         """
-        # Respect cooldown period
-        if episodes_since_last < self.adaptation_cooldown:
-            return False
-
         # Emergency situations override cooldown
         if len(self.performance_history) >= 10:
             recent_performance = list(self.performance_history)[-10:]
             success_rate = sum(1 for p in recent_performance if p > 0) / len(recent_performance)
             if success_rate < self.emergency_threshold:
                 return True
+
+        # Respect cooldown period
+        if episodes_since_last < self.adaptation_cooldown:
+            return False
 
         # Normal adaptation check
         if episodes_since_last >= self.adaptation_cooldown:

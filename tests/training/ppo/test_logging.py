@@ -487,7 +487,7 @@ class TestLoggingIntegration(unittest.TestCase):
             }
 
             # Should not crash
-            logger.log_training_metrics(step=10, incomplete_metrics)
+            logger.log_training_metrics(10, incomplete_metrics)
 
             # Only valid metrics should be tracked
             self.assertIn('policy_loss', logger.metrics_tracker.metrics)

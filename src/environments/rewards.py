@@ -23,7 +23,7 @@ class RewardCalculator(ABC):
                  sharpe_scaling: bool = True,
                  drawdown_threshold: float = 0.10,
                  drawdown_penalty_factor: float = 0.5,
-                 use_scaler: bool = True):
+                 use_scaler: bool = False):
         """
         Initialize reward calculator.
 

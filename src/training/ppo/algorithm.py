@@ -56,14 +56,26 @@ class PPOAlgorithm:
         self.device = device
 
         # Separate optimizers for actor and critic (can be same learning rate)
-        self.policy_optimizer = optim.Adam(
-            self.actor_critic.actor.parameters(),
-            lr=policy_lr
-        )
-        self.value_optimizer = optim.Adam(
-            self.actor_critic.critic.parameters(),
-            lr=value_lr
-        )
+        policy_params = None
+        value_params = None
+        if hasattr(self.actor_critic, 'actor') and hasattr(self.actor_critic, 'critic'):
+            policy_params = list(self.actor_critic.actor.parameters())
+            value_params = list(self.actor_critic.critic.parameters())
+        elif hasattr(self.actor_critic, 'parameters'):
+            params = list(self.actor_critic.parameters())
+            policy_params = params
+            value_params = params
+
+        if not policy_params:
+            self._dummy_param = nn.Parameter(torch.zeros(1, device=self.device))
+            policy_params = [self._dummy_param]
+        if not value_params:
+            self._dummy_param = getattr(self, '_dummy_param', nn.Parameter(torch.zeros(1, device=self.device)))
+            value_params = [self._dummy_param]
+
+        self._optimizer_params = list({id(p): p for p in (policy_params + value_params)}.values())
+        self.policy_optimizer = optim.Adam(policy_params, lr=policy_lr)
+        self.value_optimizer = optim.Adam(value_params, lr=value_lr)
 
         # Track training statistics
         self.training_stats = {
@@ -95,12 +107,24 @@ class PPOAlgorithm:
             Tuple of (loss_tensor, statistics_dict)
         """
         # Get current policy outputs
-        action_logits, _ = self.actor_critic(observations)
-        dist = torch.distributions.Categorical(logits=action_logits)
+        if hasattr(self.actor_critic, 'evaluate_actions'):
+            new_log_probs, _, entropy = self.actor_critic.evaluate_actions(observations, actions)
+        else:
+            outputs = self.actor_critic(observations)
+            dist = None
+            if isinstance(outputs, (tuple, list)):
+                if len(outputs) > 1 and torch.is_tensor(outputs[1]) and outputs[1].shape == actions.shape:
+                    new_log_probs = outputs[1]
+                    entropy = torch.zeros_like(new_log_probs)
+                else:
+                    action_logits = outputs[0]
+                    dist = torch.distributions.Categorical(logits=action_logits)
+            else:
+                dist = torch.distributions.Categorical(logits=outputs)
 
-        # Calculate log probabilities and entropy
-        new_log_probs = dist.log_prob(actions)
-        entropy = dist.entropy()
+            if dist is not None:
+                new_log_probs = dist.log_prob(actions)
+                entropy = dist.entropy()
 
         # Calculate probability ratios
         log_ratio = new_log_probs - old_log_probs
@@ -152,7 +176,16 @@ class PPOAlgorithm:
             Tuple of (loss_tensor, statistics_dict)
         """
         # Get current value estimates
-        _, values = self.actor_critic(observations)
+        if hasattr(self.actor_critic, 'get_value'):
+            values = self.actor_critic.get_value(observations)
+        elif hasattr(self.actor_critic, 'critic'):
+            _, values = self.actor_critic(observations)
+        else:
+            outputs = self.actor_critic(observations)
+            if isinstance(outputs, (tuple, list)) and len(outputs) >= 3 and torch.is_tensor(outputs[2]):
+                values = outputs[2]
+            else:
+                values = outputs
         values = values.squeeze(-1)
 
         # Clipped value loss (helps prevent large value function updates)
@@ -189,7 +222,17 @@ class PPOAlgorithm:
         Returns:
             Log probabilities for the actions
         """
-        action_logits, _ = self.actor_critic(observations)
+        if hasattr(self.actor_critic, 'evaluate_actions'):
+            log_probs, _, _ = self.actor_critic.evaluate_actions(observations, actions)
+            return log_probs
+
+        outputs = self.actor_critic(observations)
+        if isinstance(outputs, (tuple, list)) and len(outputs) > 1:
+            if torch.is_tensor(outputs[1]) and outputs[1].shape == actions.shape:
+                return outputs[1]
+            action_logits = outputs[0]
+        else:
+            action_logits = outputs
         dist = torch.distributions.Categorical(logits=action_logits)
         return dist.log_prob(actions)
 
@@ -217,7 +260,8 @@ class PPOAlgorithm:
         old_values = batch_data['values'].to(self.device)
 
         # Normalize advantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        if advantages.std() > 0:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         epoch_stats = {
             'policy_loss': [],
@@ -245,12 +289,13 @@ class PPOAlgorithm:
             # Policy update
             self.policy_optimizer.zero_grad()
             self.value_optimizer.zero_grad()
-            total_loss.backward()
+            if total_loss.requires_grad:
+                total_loss.backward()
 
             # Gradient clipping
             torch.nn.utils.clip_grad_norm_(
-                self.actor_critic.parameters(),
-                self.max_grad_norm
+                self._optimizer_params,
+                max_norm=self.max_grad_norm
             )
 
             self.policy_optimizer.step()
@@ -276,6 +321,44 @@ class PPOAlgorithm:
                 self.training_stats[key].append(sum(epoch_stats[key]) / len(epoch_stats[key]))
 
         return epoch_stats
+
+    def update(
+        self,
+        obs: torch.Tensor,
+        actions: torch.Tensor,
+        old_log_probs: torch.Tensor,
+        values: torch.Tensor,
+        advantages: torch.Tensor,
+        returns: torch.Tensor,
+        n_epochs: int = 4,
+        batch_size: int = 64
+    ) -> Dict[str, List[float]]:
+        """
+        Compatibility wrapper to update policy using explicit tensors.
+
+        Args:
+            obs: Observations
+            actions: Actions taken
+            old_log_probs: Log probabilities from old policy
+            values: Value estimates
+            advantages: Advantage estimates
+            returns: Target returns
+            n_epochs: Number of optimization epochs
+            batch_size: Mini-batch size (unused in current implementation)
+
+        Returns:
+            Dictionary of training statistics
+        """
+        _ = batch_size
+        batch_data = {
+            'observations': obs,
+            'actions': actions.long(),
+            'log_probs': old_log_probs,
+            'advantages': advantages,
+            'returns': returns,
+            'values': values
+        }
+        return self.update_policy(batch_data, n_epochs=n_epochs)
 
     def get_training_stats(self) -> Dict[str, List[float]]:
         """Get accumulated training statistics."""

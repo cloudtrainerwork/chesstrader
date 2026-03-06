@@ -151,6 +151,23 @@ class OptionsEnvironment(gym.Env):
             reward = self._execute_action(action_type)
             info = {'invalid_action': False}
 
+        # Early terminal check before market update (e.g., max loss hit)
+        early_done, early_terminal_reward = self._is_done()
+        if early_done:
+            reward += early_terminal_reward
+            current_pnl = self.position_state.unrealized_pnl if self.position_state else 0
+            self.episode_manager.update_stats(action_type.name, reward, current_pnl)
+            observation = self._get_observation()
+            info.update({
+                'position_pnl': current_pnl,
+                'capital': self.capital,
+                'step': self.current_step,
+                'action_type': action_type.name,
+                'terminal_reward': early_terminal_reward,
+                'episode_summary': self.episode_manager.get_episode_summary()
+            })
+            return observation, reward, True, info
+
         # Update market state (simplified simulation)
         self._update_market_state()
 
@@ -206,14 +223,14 @@ class OptionsEnvironment(gym.Env):
         elif action == ActionType.CLOSE:
             # Realize the P/L
             reward = pos.unrealized_pnl + action_cost
-            self.capital += pos.unrealized_pnl
+            self.capital += pos.unrealized_pnl + action_cost
             self.position_state = None  # Position is closed
 
         elif action == ActionType.ADJUST:
             # Adjust the position
             adjustment = PositionAdjustment.adjust_position(pos, pos.current_price)
             pos.strikes = adjustment['new_strikes']
-            adjustment_cost = adjustment['cost'] + action_cost
+            adjustment_cost = adjustment['cost'] + abs(action_cost)
             reward = -adjustment_cost  # Cost of adjustment
             self.capital -= adjustment_cost
 
@@ -221,7 +238,7 @@ class OptionsEnvironment(gym.Env):
             # Roll to next expiration
             roll = PositionAdjustment.roll_position(pos)
             pos.days_to_expiry = roll['new_expiry']
-            roll_cost = roll['cost'] + action_cost
+            roll_cost = roll['cost'] + abs(action_cost)
             reward = -roll_cost  # Cost of rolling
             self.capital -= roll_cost
         else:

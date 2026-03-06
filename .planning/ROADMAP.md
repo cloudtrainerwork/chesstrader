@@ -128,7 +128,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 09-01-PLAN.md — Event-driven backtesting engine with realistic order execution
+- [x] 09-01-PLAN.md — Event-driven backtesting engine with realistic order execution
 - [ ] 09-02-PLAN.md — Walk-forward optimization system with strategy integration
 - [ ] 09-03-PLAN.md — Monte Carlo simulation for statistical validation
 - [ ] 09-04-PLAN.md — Performance reporting system and CLI interface
@@ -159,5 +159,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. RL Environment | 3/3 | Complete | 2026-02-02 |
 | 7. PPO Training | 3/3 | Complete | 2026-02-07 |
 | 8. Position Manager | 2/2 | Complete | 2026-03-04 |
-| 9. Backtesting Engine | 0/4 | Not started | - |
+| 9. Backtesting Engine | 1/4 | In progress | 2026-03-05 |
 | 10. Integration & API | 0/3 | Not started | - |

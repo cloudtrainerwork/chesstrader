@@ -323,9 +323,9 @@ class VolatilityFeatures(FeatureEngineering):
         tr = pd.DataFrame({'tr1': tr1, 'tr2': tr2, 'tr3': tr3}).max(axis=1)
         return tr.rolling(window=period).mean()
 
-    def calculate(self, symbol: str) -> pd.DataFrame:
+    def calculate(self, symbol: str, data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """Calculate volatility features for a symbol."""
-        df = self.get_data(symbol, days=300)
+        df = data if data is not None else self.get_data(symbol, days=300)
         df = self.handle_missing_data(df)
 
         features = pd.DataFrame(index=df.index)
@@ -387,9 +387,9 @@ class VolumeFeatures(FeatureEngineering):
 
         return obv
 
-    def calculate(self, symbol: str) -> pd.DataFrame:
+    def calculate(self, symbol: str, data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """Calculate volume features for a symbol."""
-        df = self.get_data(symbol, days=300)
+        df = data if data is not None else self.get_data(symbol, days=300)
         df = self.handle_missing_data(df)
 
         features = pd.DataFrame(index=df.index)
@@ -433,9 +433,9 @@ class SupportResistanceFeatures(FeatureEngineering):
         recent_low = low.rolling(window).min().iloc[-1]
         return recent_low, recent_high
 
-    def calculate(self, symbol: str) -> pd.DataFrame:
+    def calculate(self, symbol: str, data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """Calculate support/resistance features for a symbol."""
-        df = self.get_data(symbol, days=300)
+        df = data if data is not None else self.get_data(symbol, days=300)
         df = self.handle_missing_data(df)
 
         features = pd.DataFrame(index=df.index)
@@ -490,9 +490,9 @@ class SupportResistanceFeatures(FeatureEngineering):
 class MarketContextFeatures(FeatureEngineering):
     """Market context features for regime detection (4 dimensions)."""
 
-    def calculate(self, symbol: str) -> pd.DataFrame:
+    def calculate(self, symbol: str, data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """Calculate market context features for a symbol."""
-        df = self.get_data(symbol, days=300)
+        df = data if data is not None else self.get_data(symbol, days=300)
         df = self.handle_missing_data(df)
 
         features = pd.DataFrame(index=df.index)
@@ -537,9 +537,9 @@ class MarketContextFeatures(FeatureEngineering):
 class EventFeatures(FeatureEngineering):
     """Event-based features for regime detection (3 dimensions)."""
 
-    def calculate(self, symbol: str) -> pd.DataFrame:
+    def calculate(self, symbol: str, data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """Calculate event features for a symbol."""
-        df = self.get_data(symbol, days=300)
+        df = data if data is not None else self.get_data(symbol, days=300)
 
         features = pd.DataFrame(index=df.index)
 
@@ -577,8 +577,9 @@ class RegimeStateVector(FeatureEngineering):
     Total: 48 dimensions
     """
 
-    def __init__(self):
+    def __init__(self, include_extended: bool = False):
         super().__init__()
+        self.include_extended = include_extended
         self.price_features = PriceStructureFeatures()
         self.trend_features = TrendIndicators()
         self.momentum_features = MomentumIndicators()
@@ -602,11 +603,17 @@ class RegimeStateVector(FeatureEngineering):
         price_feat = self.price_features.calculate(symbol)
         trend_feat = self.trend_features.calculate(symbol)
         momentum_feat = self.momentum_features.calculate(symbol)
-        volatility_feat = self.volatility_features.calculate(symbol)
-        volume_feat = self.volume_features.calculate(symbol)
-        support_resistance_feat = self.support_resistance_features.calculate(symbol)
-        market_context_feat = self.market_context_features.calculate(symbol)
-        event_feat = self.event_features.calculate(symbol)
+        shared_data = self.price_features.get_data(symbol, days=300)
+        if not self.include_extended:
+            state_vector = pd.concat([price_feat.iloc[-1], trend_feat.iloc[-1], momentum_feat.iloc[-1]])
+            self.validate(state_vector)
+            return state_vector
+
+        volatility_feat = self.volatility_features.calculate(symbol, data=shared_data)
+        volume_feat = self.volume_features.calculate(symbol, data=shared_data)
+        support_resistance_feat = self.support_resistance_features.calculate(symbol, data=shared_data)
+        market_context_feat = self.market_context_features.calculate(symbol, data=shared_data)
+        event_feat = self.event_features.calculate(symbol, data=shared_data)
 
         # Combine features (take most recent values)
         latest_price = price_feat.iloc[-1]

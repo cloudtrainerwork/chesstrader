@@ -298,9 +298,8 @@ class ChessWeightAdapter:
         for target_key, target_weight in target_state_dict.items():
             if target_key in chess_weights:
                 chess_weight = chess_weights[target_key]
-                if target_weight.shape == chess_weight.shape:
-                    report['compatible_layers'].append(target_key)
-                else:
+                report['compatible_layers'].append(target_key)
+                if target_weight.shape != chess_weight.shape:
                     report['size_mismatches'].append({
                         'layer': target_key,
                         'target_shape': target_weight.shape,
@@ -371,12 +370,17 @@ class ChessWeightAdapter:
     def _find_fuzzy_match(self, chess_key: str, target_keys: set) -> Optional[str]:
         """Find the best fuzzy match for a chess key among target keys."""
         # Simple fuzzy matching based on common substrings
-        chess_parts = chess_key.split('.')
+        ignore_parts = {'weight', 'bias', 'running_mean', 'running_var', 'num_batches_tracked'}
+        chess_parts = [part for part in chess_key.split('.') if part not in ignore_parts]
+        if not chess_parts:
+            return None
         best_match = None
         best_score = 0
 
         for target_key in target_keys:
-            target_parts = target_key.split('.')
+            target_parts = [part for part in target_key.split('.') if part not in ignore_parts]
+            if not target_parts:
+                continue
 
             # Count matching parts
             score = 0
@@ -390,7 +394,7 @@ class ChessWeightAdapter:
                 best_match = target_key
 
         # Only return match if it has reasonable similarity
-        return best_match if best_score >= len(chess_parts) // 2 else None
+        return best_match if best_score >= len(chess_parts) else None
 
 
 def load_and_adapt_chess_weights(chess_model_path: Union[str, Path],
@@ -421,7 +425,13 @@ def load_and_adapt_chess_weights(chess_model_path: Union[str, Path],
     # Check compatibility
     compatibility = adapter.weight_compatibility_check(adapted_weights, target_model)
 
-    if compatibility['incompatible_layers']:
-        warnings.warn(f"Found {len(compatibility['incompatible_layers'])} incompatible layers")
+    if (compatibility['incompatible_layers'] or
+            compatibility['missing_in_chess'] or
+            compatibility['extra_in_chess']):
+        warnings.warn(
+            f"Found {len(compatibility['incompatible_layers'])} incompatible layers, "
+            f"{len(compatibility['missing_in_chess'])} missing layers, "
+            f"{len(compatibility['extra_in_chess'])} extra layers"
+        )
 
     return adapted_weights

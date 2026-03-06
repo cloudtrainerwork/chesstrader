@@ -456,5 +456,5 @@ def get_strategy_reward_calculator(strategy_type: StrategyType) -> RewardCalcula
     elif strategy_type in volatility_strategies:
         return VolatilityStrategyReward()
     else:
-        # Default to base calculator
-        return RewardCalculator()
+        # Default to neutral calculator
+        return NeutralStrategyReward()

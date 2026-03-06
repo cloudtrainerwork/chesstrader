@@ -5,7 +5,14 @@ Provides base strategy interface and implementations for various options strateg
 including neutral, directional, volatility, and advanced strategies with factory pattern.
 """
 
-from .base import BaseStrategy, StrategyMetadata, StrategyType, StrategyCategory, RiskLevel
+from .base import (
+    BaseStrategy,
+    StrategyMetadata,
+    StrategyType,
+    StrategyCategory,
+    RiskLevel,
+    MarketConditions,
+)
 from .factory import StrategyFactory, StrategyRecommendation
 
 # Strategy implementations
@@ -28,6 +35,7 @@ __all__ = [
     'StrategyType',
     'StrategyCategory',
     'RiskLevel',
+    'MarketConditions',
 
     # Factory and recommendations
     'StrategyFactory',

@@ -122,15 +122,23 @@ class TransferTrainer:
                 target_spatial_dims=(7, 6)
             )
 
+            model_state = self.model.state_dict()
+            compatible_weights = {}
+            for key, value in adapted_weights.items():
+                if key in model_state and model_state[key].shape == value.shape:
+                    compatible_weights[key] = value
+
             # Load weights into model
-            load_result = self.model.load_state_dict(adapted_weights, strict=False)
+            load_result = self.model.load_state_dict(compatible_weights, strict=False)
 
             # Track which layers were transferred
             self.transferred_layers.update(adapted_weights.keys())
-            model_keys = set(self.model.state_dict().keys())
+            model_keys = set(model_state.keys())
             self.new_layers = model_keys - self.transferred_layers
+            if not self.new_layers:
+                self.new_layers = {key for key in model_keys if key.startswith("output_head.")}
 
-            self.logger.info(f"Loaded {len(adapted_weights)} chess weight layers")
+            self.logger.info(f"Loaded {len(compatible_weights)} chess weight layers")
             self.logger.info(f"Missing keys: {len(load_result.missing_keys)}")
             self.logger.info(f"Unexpected keys: {len(load_result.unexpected_keys)}")
 
@@ -398,7 +406,7 @@ class TransferTrainer:
 
             # Forward pass
             optimizer.zero_grad()
-            outputs = self.model(inputs)
+            outputs = self._forward_model(inputs)
 
             # Compute loss
             loss, loss_components = self.options_domain_loss(outputs, targets)
@@ -445,7 +453,7 @@ class TransferTrainer:
                           for k, v in batch['targets'].items()}
 
                 # Forward pass
-                outputs = self.model(inputs)
+                outputs = self._forward_model(inputs)
 
                 # Compute loss
                 _, loss_components = self.options_domain_loss(outputs, targets)
@@ -464,6 +472,22 @@ class TransferTrainer:
             epoch_losses[key] /= total_samples
 
         return epoch_losses
+
+    def _forward_model(self, inputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        if isinstance(inputs, dict) and "spatial_tensor" in inputs and hasattr(self.model, "market_encoder"):
+            spatial_tensor = inputs["spatial_tensor"]
+            market_features = inputs.get("market_features")
+            if market_features is None:
+                batch_size = spatial_tensor.shape[0]
+                feature_dim = getattr(getattr(self.model, "regime_detector", None), "input_dim", 48)
+                market_features = torch.zeros(
+                    batch_size,
+                    feature_dim,
+                    device=spatial_tensor.device,
+                    dtype=spatial_tensor.dtype,
+                )
+            return self.model(spatial_tensor, market_features)
+        return self.model(inputs)
 
     def get_transfer_effectiveness_metrics(self) -> Dict[str, Any]:
         """

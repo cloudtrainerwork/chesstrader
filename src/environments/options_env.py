@@ -89,6 +89,8 @@ class OptionsTrainingEnvironment(gym.Env):
         self.market_state: Optional[MarketState] = None
         self.capital = initial_capital
         self.episode_history: List[Dict[str, Any]] = []
+        self.last_realized_pnl = 0.0
+        self.initial_days_to_expiry: Optional[int] = None
 
         # Set random seed
         if seed is not None:
@@ -122,21 +124,23 @@ class OptionsTrainingEnvironment(gym.Env):
             StrategyType.LONG_STRANGLE
         }
 
+        reward_kwargs = {'use_scaler': False}
         if strategy_type in neutral_strategies:
-            return NeutralStrategyReward()
+            return NeutralStrategyReward(**reward_kwargs)
         elif strategy_type in directional_strategies:
-            return DirectionalStrategyReward()
+            return DirectionalStrategyReward(**reward_kwargs)
         elif strategy_type in volatility_strategies:
-            return VolatilityStrategyReward()
+            return VolatilityStrategyReward(**reward_kwargs)
         else:
             # Default to neutral
-            return NeutralStrategyReward()
+            return NeutralStrategyReward(**reward_kwargs)
 
     def reset(self) -> np.ndarray:
         """Reset environment for new episode."""
         # Reset step counter and capital
         self.current_step = 0
         self.capital = self.initial_capital
+        self.last_realized_pnl = 0.0
 
         # Reset episode manager
         self.episode_manager.reset()
@@ -169,6 +173,8 @@ class OptionsTrainingEnvironment(gym.Env):
         # Convert action
         action_type = ActionType(action)
 
+        prev_pnl = self.position_state.unrealized_pnl
+
         # Update market state first
         self.market_state = self.market_simulator.simulate_step(self.market_state)
         self._update_position_from_market()
@@ -185,10 +191,12 @@ class OptionsTrainingEnvironment(gym.Env):
             'strikes': self.position_state.strikes,
             'quantities': self.position_state.quantities,
             'current_pnl': self.position_state.unrealized_pnl,
+            'prev_pnl': prev_pnl,
             'max_loss': self.position_state.max_loss,
             'entry_price': self.position_state.entry_price,
             'current_price': self.position_state.current_price,
             'days_to_expiry': self.position_state.days_to_expiry,
+            'initial_days_to_expiry': self.initial_days_to_expiry or self.position_state.days_to_expiry,
             'current_iv': self.position_state.current_iv
         }
 
@@ -212,7 +220,10 @@ class OptionsTrainingEnvironment(gym.Env):
         reward += terminal_reward
 
         # Update episode statistics
-        current_pnl = self.position_state.unrealized_pnl if self.position_state else 0
+        if self.position_state is None:
+            current_pnl = self.last_realized_pnl
+        else:
+            current_pnl = self.position_state.unrealized_pnl
         self.episode_manager.update_stats(action_type.name, reward, current_pnl)
 
         # Generate observation
@@ -255,6 +266,7 @@ class OptionsTrainingEnvironment(gym.Env):
         initial_iv = 0.15 + np.random.normal(0, 0.05)  # IV around 15-25%
         initial_iv = max(0.05, min(initial_iv, 0.50))  # Clamp IV
         days_to_expiry = np.random.randint(15, 45)  # 15-45 days
+        self.initial_days_to_expiry = int(days_to_expiry)
 
         if self.strategy_type == StrategyType.IRON_CONDOR:
             # Iron Condor: Sell put spread, sell call spread
@@ -296,7 +308,7 @@ class OptionsTrainingEnvironment(gym.Env):
             max_loss = -400
             max_profit = 100
 
-        return PositionState(
+        position_state = PositionState(
             strategy_type=self.strategy_type,
             strikes=strikes,
             quantities=quantities,
@@ -309,6 +321,8 @@ class OptionsTrainingEnvironment(gym.Env):
             max_loss=max_loss,
             max_profit=max_profit
         )
+        position_state.initial_days_to_expiry = self.initial_days_to_expiry
+        return position_state
 
     def _update_position_from_market(self):
         """Update position state from current market state."""
@@ -373,6 +387,7 @@ class OptionsTrainingEnvironment(gym.Env):
             # Close position
             realized_pnl = self.position_state.unrealized_pnl
             self.capital += realized_pnl
+            self.last_realized_pnl = realized_pnl
             self.position_state = None  # Mark as closed
             return realized_pnl * 0.1  # Small fraction as immediate reward
 
@@ -407,7 +422,10 @@ class OptionsTrainingEnvironment(gym.Env):
 
         terminal_reward = 0.0
         if is_terminal:
-            final_pnl = self.position_state.unrealized_pnl if self.position_state else 0
+            if self.position_state is None:
+                final_pnl = self.last_realized_pnl
+            else:
+                final_pnl = self.position_state.unrealized_pnl
             raw_terminal_reward = self.episode_manager.calculate_terminal_reward(reason, final_pnl)
             terminal_reward = self.reward_scaler.scale_reward(raw_terminal_reward)
 

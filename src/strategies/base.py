@@ -50,6 +50,7 @@ class StrategyType(Enum):
     # Complex strategies
     IRON_CONDOR = "iron_condor"
     BUTTERFLY = "butterfly"
+    IRON_BUTTERFLY = "butterfly"
 
 
 class StrategyCategory(Enum):

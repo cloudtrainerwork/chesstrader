@@ -151,18 +151,17 @@ def calculate_action_cost(action: ActionType, position_state=None) -> float:
     if action == ActionType.HOLD:
         return 0.0  # No cost to hold
 
-    elif action == ActionType.CLOSE:
+    if action == ActionType.CLOSE:
         # Closing cost based on number of contracts
         if position_state:
             num_contracts = len(position_state.strikes)
             return -num_contracts * 1.0  # $1 per contract
-
         return -4.0  # Default closing cost
 
-    elif action == ActionType.ADJUST:
+    if action == ActionType.ADJUST:
         return -10.0  # Flat adjustment fee
 
-    elif action == ActionType.ROLL:
+    if action == ActionType.ROLL:
         return -15.0  # Rolling is more expensive
 
     return 0.0

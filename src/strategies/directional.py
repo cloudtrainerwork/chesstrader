@@ -154,7 +154,7 @@ class BullCallSpreadStrategy(BaseStrategy):
             reasons.append("Longer timeframe reduces time decay benefit")
 
         # Position sizing recommendation
-        recommended_size = 1.0
+        recommended_size = 0.9
         if confidence > 0.8:
             recommended_size = 1.25  # Increase size for high confidence
         elif confidence < 0.5:

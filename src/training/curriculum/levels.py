@@ -65,15 +65,29 @@ class CurriculumLevel:
     performance thresholds required for progression.
     """
 
-    def __init__(self, level: DifficultyLevel):
+    def __init__(
+        self,
+        level: Optional[DifficultyLevel] = None,
+        difficulty_level: Optional[DifficultyLevel] = None,
+        level_id: Optional[int] = None,
+        performance_threshold: Optional[float] = None,
+        parameters: Optional[CurriculumParameters] = None
+    ):
         """
         Initialize curriculum level with predefined parameters.
 
         Args:
             level: The difficulty level enum value
         """
+        if difficulty_level is not None:
+            level = difficulty_level
+        if level is None:
+            raise ValueError("Difficulty level must be provided")
+
+        self.level_id = level_id
+        self.performance_threshold = performance_threshold
         self.level = level
-        self._parameters = self._get_level_parameters()
+        self._parameters = parameters if isinstance(parameters, CurriculumParameters) else self._get_level_parameters()
         self._advancement_criteria = self._get_advancement_criteria()
 
     def _get_level_parameters(self) -> CurriculumParameters:

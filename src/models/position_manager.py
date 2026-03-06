@@ -199,7 +199,8 @@ class PositionManagerFeatureExtractor(nn.Module):
         # Specialized position encoder
         self.position_encoder = PositionEncoder(
             position_dim=position_dim,
-            embed_dim=64
+            embed_dim=64,
+            dropout=dropout
         )
 
         # Market state encoder
@@ -315,8 +316,10 @@ class PositionManagerActor(nn.Module):
         )
 
         # Initialize with smaller weights for final layer
-        orthogonal_init(self.action_logits, gain=0.01)
-        self.apply(lambda m: orthogonal_init(m, gain=0.01) if isinstance(m, nn.Linear) else None)
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(0)
+            orthogonal_init(self.action_logits, gain=0.01)
+            self.apply(lambda m: orthogonal_init(m, gain=0.01) if isinstance(m, nn.Linear) else None)
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         """
@@ -348,6 +351,14 @@ class PositionManagerActor(nn.Module):
         # Ensure at least one action is always valid (fallback to HOLD)
         no_valid_actions = (action_mask.sum(dim=1) == 0)
         action_mask[no_valid_actions, 0] = 1.0  # HOLD action
+
+        # If only one action is valid, add the next-best action to avoid degenerate entropy
+        single_valid = (action_mask.sum(dim=1) == 1)
+        if single_valid.any():
+            top2 = torch.topk(mask_probs, k=2, dim=1).indices
+            for idx in torch.where(single_valid)[0]:
+                second_choice = top2[idx, 1]
+                action_mask[idx, second_choice] = 1.0
 
         return action_mask
 

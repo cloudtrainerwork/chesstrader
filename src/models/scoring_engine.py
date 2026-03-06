@@ -269,7 +269,7 @@ class ScoringEngine:
         elif probability > 0.5:
             explanations.append(f"Moderate neural network preference ({probability:.1%})")
         else:
-            explanations.append(f"Weak neural network signal ({probability:.1%})")
+            explanations.append(f"Weak neural network preference ({probability:.1%})")
 
         # Regime fit
         if regime_confidence > 0.8:
