@@ -112,19 +112,24 @@ class TestBootstrapResampler:
         # Create trade sequence with clear pattern
         trade_returns = [0.05, -0.05, 0.05, -0.05, 0.05, -0.05]
 
-        # Mock the resample method to verify it's using random sampling
+        # Test that the method uses random choice correctly
         with patch('numpy.random.choice') as mock_choice:
-            # Setup mock to return a different sequence
-            mock_choice.return_value = np.array([0.05, 0.05, -0.05, -0.05, 0.05, -0.05])
+            # Setup mock to return valid indices instead of values
+            mock_choice.return_value = np.array([0, 0, 1, 1, 2, 3])  # Valid indices
 
             resampled_sequence = resampler._resample_with_replacement(trade_returns)
 
             # Verify numpy.random.choice was called with correct parameters
             mock_choice.assert_called_once()
             call_args = mock_choice.call_args
-            assert len(call_args[0][0]) == len(trade_returns)  # Original sequence length
+
+            # Check that the first argument is the length of the sequence
+            assert call_args[0][0] == len(trade_returns)  # Length passed to choice
             assert call_args[1]['replace'] == True  # With replacement
             assert call_args[1]['size'] == len(trade_returns)  # Same size
+
+            # Verify the result is a numpy array
+            assert isinstance(resampled_sequence, np.ndarray)
 
     def test_edge_cases_handling(self):
         """Test handling of edge cases in trade data"""
@@ -138,13 +143,14 @@ class TestBootstrapResampler:
         single_trade = [0.05]
         single_results = resampler.resample_trade_sequence(single_trade)
         assert len(single_results) == 2
-        assert all(single_results['final_return'] == 0.05)
+        # Use approximate equality for floating point comparison
+        assert all(abs(single_results['final_return'] - 0.05) < 1e-10)
 
         # Test all zero returns
         zero_returns = [0.0, 0.0, 0.0]
         zero_results = resampler.resample_trade_sequence(zero_returns)
-        assert all(zero_results['final_return'] == 0.0)
-        assert all(zero_results['max_drawdown'] == 0.0)
+        assert all(abs(zero_results['final_return']) < 1e-10)
+        assert all(abs(zero_results['max_drawdown']) < 1e-10)
 
     def test_reproducible_bootstrap_sampling(self):
         """Test that bootstrap sampling is reproducible with same seed"""
