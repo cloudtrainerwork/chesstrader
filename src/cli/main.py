@@ -152,10 +152,12 @@ def version():
 # Import and register commands
 from .commands.recommend import recommend
 from .commands.backtest import backtest
+from .commands.options_trades import options_trades
 
 # Add commands to app
 app.command(name="recommend", help="Get AI-powered strategy recommendations")(recommend)
 app.command(name="backtest", help="Run comprehensive backtesting analysis")(backtest)
+app.command(name="trades", help="Get actionable options trading recommendations with specific contracts")(options_trades)
 
 
 if __name__ == "__main__":
