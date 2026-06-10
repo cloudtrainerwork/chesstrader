@@ -91,6 +91,25 @@ class TestPositionModels(unittest.TestCase):
         lc_max = self.long_call.calculate_max_profit()
         self.assertEqual(lc_max, 0)
 
+    def test_debit_spread_max_profit_when_debit_exceeds_half_width(self):
+        """Bull call spread max profit must be width - debit, even when the
+        net debit exceeds half the spread width (regression for issue #16)."""
+        # Width 1000c, net debit 800c (long 900c - short 100c). Max profit is
+        # 1000 - 800 = 200c. The old max(width-debit, debit) returned 800c.
+        bull_call_spread = Position(
+            strategy_type=StrategyType.BULL_CALL_SPREAD,
+            entry_date=self.entry_date,
+            expiration_date=self.expiration_date,
+            strikes=[10000, 11000],
+            option_types=[OptionType.CALL, OptionType.CALL],
+            quantities=[1, -1],
+            entry_prices=[900, 100],
+            current_prices=[950, 120],
+            underlying_price_at_entry=10000,
+            current_underlying_price=10000
+        )
+        self.assertEqual(bull_call_spread.calculate_max_profit(), 200)
+
     def test_max_loss_calculation(self):
         """Test maximum loss calculation."""
         # Long call max loss is premium paid
