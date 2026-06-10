@@ -28,7 +28,7 @@ class TestScoringEngine:
             StrategyType.IRON_CONDOR: 0.35,
             StrategyType.BULL_CALL_SPREAD: 0.25,
             StrategyType.LONG_STRADDLE: 0.20,
-            StrategyType.IRON_BUTTERFLY: 0.15,
+            StrategyType.BUTTERFLY: 0.15,
             StrategyType.BEAR_PUT_SPREAD: 0.05
         }
 
@@ -66,7 +66,7 @@ class TestScoringEngine:
                 'volatility': 0.35,
                 'backtest_samples': 75
             },
-            StrategyType.IRON_BUTTERFLY: {
+            StrategyType.BUTTERFLY: {
                 'max_drawdown': 0.10,
                 'var_95': 0.04,
                 'win_rate': 0.65,
@@ -95,7 +95,7 @@ class TestScoringEngine:
             StrategyType.IRON_CONDOR: 0.12,
             StrategyType.BULL_CALL_SPREAD: 0.15,
             StrategyType.LONG_STRADDLE: 0.20,
-            StrategyType.IRON_BUTTERFLY: 0.08,
+            StrategyType.BUTTERFLY: 0.08,
             StrategyType.BEAR_PUT_SPREAD: 0.10
         }
 
