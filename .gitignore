@@ -163,7 +163,7 @@ cython_debug/
 *.sqlite
 *.sqlite3
 data/
-logs/
-checkpoints/
-models/
+/logs/
+/checkpoints/
+/models/
 .DS_Store
