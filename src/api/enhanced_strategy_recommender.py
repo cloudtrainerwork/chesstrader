@@ -542,9 +542,12 @@ class EnhancedStrategyRecommender:
 
         t = days / 365.0
         d1 = (np.log(current_price / target_price) + (self.risk_free_rate + 0.5 * volatility**2) * t) / (volatility * np.sqrt(t))
+        # Risk-neutral probability that S_T > target is N(d2), not N(d1).
+        # N(d1) is the call delta; using it overstates the probability.
+        d2 = d1 - volatility * np.sqrt(t)
 
         from scipy.stats import norm
-        return norm.cdf(d1)
+        return norm.cdf(d2)
 
     def _calculate_probability_below(self, current_price: float, target_price: float,
                                    volatility: float, days: int) -> float:
