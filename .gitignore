@@ -162,7 +162,7 @@ cython_debug/
 *.db
 *.sqlite
 *.sqlite3
-data/
+/data/
 logs/
 checkpoints/
 models/
