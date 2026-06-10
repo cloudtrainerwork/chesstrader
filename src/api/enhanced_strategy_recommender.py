@@ -513,7 +513,10 @@ class EnhancedStrategyRecommender:
             },
             'current_price': current_price,
             'days_to_expiration': self._days_to_expiration(expiration),
-            'profit_risk_ratio': round(max_profit / 1000, 2)  # Simplified ratio for covered calls
+            # Reward-to-risk ratio, consistent with the spread strategies above.
+            # (Previously max_profit / 1000, a fabricated constant that ranked by
+            # raw dollar profit rather than risk-adjusted return.)
+            'profit_risk_ratio': round(max_profit / max_loss, 2) if max_loss > 0 else 0
         }
 
     # Helper methods
