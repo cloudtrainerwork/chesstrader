@@ -22,7 +22,7 @@ class ScoredStrategy:
     raw_probability: float  # Neural network output
     risk_adjusted_score: float  # 0-100 normalized score
     expected_value: float  # Expected P/L
-    kelly_size: float  # Position size recommendation (0-1)
+    kelly_size: Optional[float]  # Position size recommendation (0-1); None if no historical data
     max_drawdown: float  # Historical/estimated max drawdown
     var_95: float  # 95% Value at Risk
     confidence: float  # Overall confidence (0-1)
@@ -104,12 +104,8 @@ class ScoringEngine:
                 metrics.get('win_rate', 0.5)
             )
 
-            # Calculate Kelly position size
-            kelly_size = self._calculate_kelly_sizing(
-                metrics.get('win_rate', 0.5),
-                metrics.get('avg_win', 1.0),
-                metrics.get('avg_loss', 1.0)
-            )
+            # Calculate Kelly position size (None when historical data is absent)
+            kelly_size = self._calculate_kelly_sizing(metrics)
 
             # Normalize score to 0-100 range
             normalized_score = self._normalize_score(risk_adjusted)
@@ -192,10 +188,7 @@ class ScoringEngine:
         # Can be enhanced with more sophisticated models
         return expected_return * probability * win_rate
 
-    def _calculate_kelly_sizing(self,
-                               win_rate: float,
-                               avg_win: float,
-                               avg_loss: float) -> float:
+    def _calculate_kelly_sizing(self, metrics: Dict[str, float]) -> Optional[float]:
         """
         Calculate position size using Kelly criterion.
 
@@ -205,16 +198,28 @@ class ScoringEngine:
         - p = probability of winning
         - q = probability of losing (1-p)
         - b = ratio of win to loss
+
+        Returns None when the required historical inputs (win_rate, avg_win,
+        avg_loss) are not all present. Sizing has no statistical basis without
+        them, and returning 0 would be indistinguishable from a real "no edge"
+        result (Kelly = 0). Callers must treat None as "insufficient data".
         """
+        if not all(key in metrics for key in ("win_rate", "avg_win", "avg_loss")):
+            return None
+
+        win_rate = metrics["win_rate"]
+        avg_win = metrics["avg_win"]
+        avg_loss = metrics["avg_loss"]
+
         if avg_loss <= 0 or win_rate <= 0 or win_rate >= 1:
-            return 0
+            return 0.0
 
         p = win_rate
         q = 1 - p
         b = avg_win / avg_loss
 
         if b <= 0:
-            return 0
+            return 0.0
 
         # Full Kelly
         kelly_full = (p * b - q) / b
@@ -223,7 +228,7 @@ class ScoringEngine:
         kelly_fraction = kelly_full * self.kelly_fraction
 
         # Cap at maximum position size
-        return max(0, min(kelly_fraction, self.max_position_size))
+        return max(0.0, min(kelly_fraction, self.max_position_size))
 
     def _normalize_score(self, raw_score: float) -> float:
         """Normalize score to 0-100 range for interpretability."""
