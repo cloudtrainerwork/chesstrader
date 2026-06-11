@@ -72,6 +72,17 @@ class TestPerformanceCalculator:
         assert metrics['sharpe_ratio'] > 10, "Sharpe ratio should be high for consistent returns"
         assert metrics['annualized_return'] > 10, "Annualized return should be very high"
 
+    def test_annualized_return_without_datetime_uses_trading_days(self):
+        """Equity curves without a datetime column are trading bars and must be
+        annualized by trading_days, not calendar days (issue #12)."""
+        # 252 trading bars (one trading year), +20% total -> ~20% annualized.
+        equity_curve = pd.DataFrame({'total': np.linspace(100000, 120000, 252)})
+
+        metrics = self.calculator.calculate_all_metrics(equity_curve, pd.DataFrame())
+
+        # Old code divided 252 bars by 365.25, over-annualizing to ~30%.
+        assert abs(metrics['annualized_return'] - 0.20) < 0.01
+
     def test_max_drawdown_calculation(self):
         """Test maximum drawdown calculation"""
         # Create equity curve with known drawdown
