@@ -21,3 +21,14 @@ builtins.torch = torch
 builtins.F = F
 builtins.np = np
 builtins.pd = pd
+
+# These root-level files are standalone manual/integration scripts, not pytest
+# test modules. They execute code (and call sys.exit()) at import time, which
+# aborts pytest collection for the entire suite. Exclude them from collection;
+# run them directly (e.g. `python test_api.py`) when needed. (issue #11)
+collect_ignore = [
+    "test_api.py",
+    "test_e2e.py",
+    "test_installed_api.py",
+    "test_options_simple.py",
+]
