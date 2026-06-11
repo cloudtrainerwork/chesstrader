@@ -471,8 +471,12 @@ class EnhancedStrategyRecommender:
             return None
 
         premium = self._get_option_price(call_option, 'bid')
-        max_profit = premium + (strike - current_price) * 100  # Assume 100 shares
-        max_loss = (current_price * 100) - premium  # Stock could go to zero
+        # premium is per share; scale it to the 100-share contract so every term
+        # is in total dollars. Max profit if called away = premium + capital gain
+        # to the strike; max loss if the stock goes to zero = cost basis less the
+        # premium collected.
+        max_profit = (premium + strike - current_price) * 100
+        max_loss = (current_price - premium) * 100  # Stock could go to zero
 
         # Probability call expires worthless (we keep premium)
         prob_profit = 1 - self._calculate_probability_above(current_price, strike, volatility,
