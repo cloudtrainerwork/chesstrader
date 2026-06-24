@@ -17,6 +17,7 @@ from src.features.regime_features import (
     PriceStructureFeatures,
     TrendIndicators,
     MomentumIndicators,
+    VolatilityFeatures,
     RegimeStateVector
 )
 
@@ -269,3 +270,52 @@ class TestRegimeStateVector:
             state = rsv.calculate('SPY')
 
         assert not state.isnull().any(), "State vector contains NaN values"
+
+
+class TestVolatilityFeatures:
+    """Verify live-signal volatility features replaced the hardcoded stubs."""
+
+    @pytest.fixture
+    def sample_data(self):
+        dates = pd.date_range('2022-01-01', periods=300, freq='D')
+        np.random.seed(7)
+        close = 100 + np.cumsum(np.random.normal(0, 1, 300))
+        high = close * (1 + np.abs(np.random.normal(0, 0.01, 300)))
+        low = close * (1 - np.abs(np.random.normal(0, 0.01, 300)))
+        return pd.DataFrame({
+            'Open': close, 'High': high, 'Low': low,
+            'Close': close, 'Volume': np.ones(300) * 1e6,
+        }, index=dates)
+
+    def _fake_vix(self, dates):
+        """VIX that varies so we can assert it's not the constant 20.0."""
+        vix = pd.Series(np.linspace(15, 35, len(dates)), index=dates)
+        return pd.DataFrame({'vix': vix.values, 'vix_pct': (vix / 35).values}, index=dates)
+
+    def test_vix_level_varies(self, sample_data):
+        """vix_level must not be a constant — it now comes from live ^VIX data."""
+        vf = VolatilityFeatures()
+        with patch.object(vf, '_get_vix_aligned', side_effect=self._fake_vix):
+            feats = vf.calculate('SPY', data=sample_data)
+        assert feats['vix_level'].nunique() > 1, "vix_level is still a constant stub"
+
+    def test_implied_volatility_varies(self, sample_data):
+        """implied_volatility must not be the hardcoded 0.2 constant."""
+        vf = VolatilityFeatures()
+        with patch.object(vf, '_get_vix_aligned', side_effect=self._fake_vix):
+            feats = vf.calculate('SPY', data=sample_data)
+        assert feats['implied_volatility'].nunique() > 1, "implied_volatility is still a constant stub"
+
+    def test_iv_rank_varies(self, sample_data):
+        """iv_rank must not be the hardcoded 0.5 constant."""
+        vf = VolatilityFeatures()
+        with patch.object(vf, '_get_vix_aligned', side_effect=self._fake_vix):
+            feats = vf.calculate('SPY', data=sample_data)
+        assert feats['iv_rank'].nunique() > 1, "iv_rank is still a constant stub"
+
+    def test_no_nans(self, sample_data):
+        """Feature DataFrame must have no NaN after calculation."""
+        vf = VolatilityFeatures()
+        with patch.object(vf, '_get_vix_aligned', side_effect=self._fake_vix):
+            feats = vf.calculate('SPY', data=sample_data)
+        assert not feats.isnull().any().any()
