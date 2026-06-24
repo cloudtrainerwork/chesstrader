@@ -16,6 +16,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 # Import OptionsAI
+_options_ai_import_error: Optional[Exception] = None
 try:
     # Try relative import first (when installed as package)
     from ..main import OptionsAI
@@ -33,9 +34,11 @@ except (ImportError, ValueError):
 
         from main import OptionsAI
     except ImportError as e:
-        typer.echo(f"Error importing OptionsAI: {e}", err=True)
-        typer.echo("Please ensure all dependencies are installed and the project is properly configured.", err=True)
-        sys.exit(1)
+        # Defer reporting to command execution. Calling sys.exit() at import
+        # time aborts the whole process — including pytest collection — for any
+        # module that merely imports this one.
+        OptionsAI = None
+        _options_ai_import_error = e
 
 # Create Typer app
 app = typer.Typer(
@@ -49,12 +52,21 @@ app = typer.Typer(
 console = Console()
 
 # Global OptionsAI instance
-_options_ai: Optional[OptionsAI] = None
+_options_ai: Optional["OptionsAI"] = None
 
 
-def get_options_ai(config_path: Optional[str] = None) -> OptionsAI:
+def get_options_ai(config_path: Optional[str] = None) -> "OptionsAI":
     """Get or create OptionsAI instance."""
     global _options_ai
+    if OptionsAI is None:
+        console.print(
+            f"[red]OptionsAI is unavailable: {_options_ai_import_error}[/red]"
+        )
+        console.print(
+            "Please ensure all dependencies are installed and the project is "
+            "properly configured."
+        )
+        raise typer.Exit(1)
     if _options_ai is None:
         try:
             _options_ai = OptionsAI(config_path=config_path)
