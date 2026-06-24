@@ -28,7 +28,7 @@ class StrategyRecommendation:
     strategy_type: StrategyType
     score: float  # 0-100 normalized score
     confidence: float  # 0-1 confidence level
-    position_size: float  # Recommended position size (fraction of capital)
+    position_size: Optional[float]  # Recommended position size (fraction of capital); None when kelly sizing unavailable
     expected_return: float  # Expected return
     max_risk: float  # Maximum risk (drawdown)
     regime: RegimeType  # Current market regime

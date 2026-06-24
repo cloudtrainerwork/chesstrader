@@ -133,17 +133,13 @@ class RegimeDetector(nn.Module):
         x = F.relu(x)
         x = self.dropout(x)
 
-        # Output layers
+        # Output layers — return raw logits so CrossEntropyLoss receives pre-softmax values
         regime_logits = self.regime_output(x)
         confidence_logits = self.confidence_output(x)
-        regime_logits = regime_logits + 0.01 * confidence_logits.expand(-1, self.num_regimes)
+        confidence_score = torch.sigmoid(confidence_logits)
 
-        # Apply activations
-        regime_probs = F.softmax(regime_logits, dim=1)  # Regime probabilities sum to 1
-        confidence_score = torch.sigmoid(confidence_logits)  # Confidence in [0, 1]
-
-        # Combine outputs
-        output = torch.cat([regime_probs, confidence_score], dim=1)
+        # Combine: raw logits + confidence score
+        output = torch.cat([regime_logits, confidence_score], dim=1)
 
         return output
 
@@ -162,8 +158,11 @@ class RegimeDetector(nn.Module):
         """
         with torch.no_grad():
             output = self.forward(x)
-            regime_probs = output[:, :self.num_regimes]
+            regime_logits = output[:, :self.num_regimes]
             confidence = output[:, self.num_regimes:]
+
+            # Softmax here only — not in forward() — so CrossEntropyLoss gets raw logits
+            regime_probs = F.softmax(regime_logits, dim=1)
 
             # Get predicted regime (argmax)
             predicted_regimes = torch.argmax(regime_probs, dim=1)
@@ -184,10 +183,10 @@ class RegimeDetector(nn.Module):
         """
         with torch.no_grad():
             output = self.forward(x)
-            regime_probs = output[:, :self.num_regimes]
+            # forward() returns raw logits; apply softmax here to get probabilities for entropy
+            regime_probs = F.softmax(output[:, :self.num_regimes], dim=1)
 
             # Calculate entropy: -sum(p * log(p))
-            # Add small epsilon to avoid log(0)
             epsilon = 1e-8
             entropy = -torch.sum(regime_probs * torch.log(regime_probs + epsilon), dim=1, keepdim=True)
 

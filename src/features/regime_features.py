@@ -124,9 +124,10 @@ class TrendIndicators(FeatureEngineering):
         di_plus = 100 * (dm_plus_smooth / atr)
         di_minus = 100 * (dm_minus_smooth / atr)
 
-        # ADX calculation
-        dx = 100 * np.abs(di_plus - di_minus) / (di_plus + di_minus)
-        adx = dx.ewm(alpha=alpha, adjust=False).mean()
+        # ADX calculation — guard zero denominator (occurs on first `period` bars)
+        denom = di_plus + di_minus
+        dx_values = np.where(denom > 0, 100 * np.abs(di_plus - di_minus) / denom, 0.0)
+        adx = pd.Series(dx_values, index=di_plus.index).ewm(alpha=alpha, adjust=False).mean()
 
         return adx, di_plus, di_minus
 
@@ -237,6 +238,8 @@ class MomentumIndicators(FeatureEngineering):
         highest_high = high.rolling(window=k_period).max()
 
         k_percent = 100 * (close - lowest_low) / (highest_high - lowest_low)
+        # flat price produces 0/0 → NaN, or non-zero/0 → inf; replace both with 50 (neutral)
+        k_percent = k_percent.replace([np.inf, -np.inf], np.nan).fillna(50.0)
         d_percent = k_percent.rolling(window=d_period).mean()
 
         return k_percent, d_percent
@@ -323,31 +326,58 @@ class VolatilityFeatures(FeatureEngineering):
         tr = pd.DataFrame({'tr1': tr1, 'tr2': tr2, 'tr3': tr3}).max(axis=1)
         return tr.rolling(window=period).mean()
 
+    def _rolling_rank(self, series: pd.Series, window: int = 252) -> pd.Series:
+        """Return each value's rank (0-1) within the preceding window."""
+        def _rank(x):
+            lo, hi = x.min(), x.max()
+            return (x.iloc[-1] - lo) / (hi - lo) if hi > lo else 0.5
+        return series.rolling(window, min_periods=20).apply(_rank, raw=False)
+
+    def _get_vix_aligned(self, dates: pd.DatetimeIndex) -> pd.DataFrame:
+        """Fetch ^VIX history and align to the given date index."""
+        try:
+            import yfinance as yf
+            # Strip tz for clean alignment; yfinance dates vary by version
+            start = dates[0].tz_localize(None) if hasattr(dates[0], 'tz_localize') and dates[0].tzinfo else dates[0]
+            end = dates[-1].tz_localize(None) if hasattr(dates[-1], 'tz_localize') and dates[-1].tzinfo else dates[-1]
+            vix_raw = yf.Ticker("^VIX").history(start=start, end=end + pd.Timedelta(days=5))
+            vix_close = vix_raw['Close']
+            vix_close.index = vix_close.index.tz_localize(None) if vix_close.index.tzinfo else vix_close.index
+            plain_dates = dates.tz_localize(None) if dates.tzinfo else dates
+            aligned = vix_close.reindex(plain_dates, method='ffill').bfill().fillna(20.0)
+            vix_pct = self._rolling_rank(aligned).fillna(0.5)
+            return pd.DataFrame({'vix': aligned.values, 'vix_pct': vix_pct.values}, index=dates)
+        except Exception:
+            n = len(dates)
+            return pd.DataFrame({'vix': [20.0] * n, 'vix_pct': [0.5] * n}, index=dates)
+
     def calculate(self, symbol: str, data: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """Calculate volatility features for a symbol."""
-        df = data if data is not None else self.get_data(symbol, days=300)
+        df = data if data is not None else self.get_data(symbol, days=365)
         df = self.handle_missing_data(df)
 
         features = pd.DataFrame(index=df.index)
 
-        # 1. Historical volatility (20-day rolling)
+        # 1. Historical volatility (20-day rolling, annualized)
         returns = df['Close'].pct_change()
-        features['historical_volatility_20'] = returns.rolling(20).std() * np.sqrt(252)  # Annualized
+        hv20 = returns.rolling(20).std() * np.sqrt(252)
+        features['historical_volatility_20'] = hv20
 
-        # 2-4. Implied volatility features (stubbed - would need options data)
-        features['implied_volatility'] = 0.2  # Stub with average IV
-        features['iv_rank'] = 0.5  # Stub with neutral rank
-        features['iv_percentile'] = 0.5  # Stub with neutral percentile
+        # 2-4. IV features: use HV20 as proxy; rank/percentile from rolling window
+        # ponytail: true IV requires historical options chain data not in yfinance
+        features['implied_volatility'] = hv20
+        features['iv_rank'] = self._rolling_rank(hv20)
+        features['iv_percentile'] = features['iv_rank']
 
-        # 5-6. VIX features (stubbed - would need VIX data)
-        features['vix_level'] = 20.0  # Stub with average VIX
-        features['vix_percentile'] = 0.5  # Stub with neutral percentile
+        # 5-6. VIX level and percentile from live ^VIX history
+        vix = self._get_vix_aligned(df.index)
+        features['vix_level'] = vix['vix'].values
+        features['vix_percentile'] = vix['vix_pct'].values
 
-        # 7. Term structure slope (stubbed - would need options data)
-        features['term_structure_slope'] = 0.0  # Stub with flat term structure
-
-        # 8. Put/call skew (stubbed - would need options data)
-        features['put_call_skew'] = 0.0  # Stub with neutral skew
+        # 7-8. Options-derived — require historical chain data yfinance does not provide
+        # ponytail: wire up when a historical options data source is added
+        features['term_structure_slope'] = 0.0
+        features['put_call_skew'] = 0.0
 
         # 9-10. Bollinger Bands features
         bb_upper, bb_lower, bb_middle = self.calculate_bollinger_bands(df['Close'])
@@ -358,7 +388,6 @@ class VolatilityFeatures(FeatureEngineering):
         atr = self.calculate_atr(df['High'], df['Low'], df['Close'])
         features['atr_normalized'] = atr / df['Close']
 
-        # Handle missing data and normalize
         features = self.handle_missing_data(features)
         features = features.fillna(0)
 
@@ -374,14 +403,16 @@ class VolumeFeatures(FeatureEngineering):
 
     def calculate_obv(self, close: pd.Series, volume: pd.Series) -> pd.Series:
         """Calculate On Balance Volume."""
+        # Fill NaN volume (common for the most recent yfinance bar) with 0 before accumulating
+        vol = volume.fillna(0)
         obv = pd.Series(index=close.index, dtype=float)
-        obv.iloc[0] = volume.iloc[0]
+        obv.iloc[0] = vol.iloc[0]
 
         for i in range(1, len(close)):
             if close.iloc[i] > close.iloc[i-1]:
-                obv.iloc[i] = obv.iloc[i-1] + volume.iloc[i]
+                obv.iloc[i] = obv.iloc[i-1] + vol.iloc[i]
             elif close.iloc[i] < close.iloc[i-1]:
-                obv.iloc[i] = obv.iloc[i-1] - volume.iloc[i]
+                obv.iloc[i] = obv.iloc[i-1] - vol.iloc[i]
             else:
                 obv.iloc[i] = obv.iloc[i-1]
 
@@ -553,9 +584,12 @@ class EventFeatures(FeatureEngineering):
         # 3. Days to options expiration (stubbed - would need options calendar)
         features['days_to_opex'] = 10.0  # Assume average to monthly expiration
 
-        # Normalize to [-1, 1] range
+        # Normalize to [-1, 1] range — skip constant columns (minmax on constant = 0/0)
         for col in features.columns:
-            features[col] = self.standardize(features[col], method='minmax')
+            if features[col].nunique() > 1:
+                features[col] = self.standardize(features[col], method='minmax')
+            else:
+                features[col] = 0.0  # constant stub: map to neutral midpoint
 
         self.validate(features)
         return features

@@ -5,12 +5,17 @@ Provides specific contract recommendations with entry/exit dates,
 strike prices, expirations, and concrete trading instructions.
 """
 
+import glob
 import logging
+import os
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 import numpy as np
 import pandas as pd
 import yfinance as yf
+
+from ..strategies.factory import StrategyFactory
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +89,92 @@ class EnhancedStrategyRecommender:
         else:
             return (bid + ask) / 2
 
+    def _get_builder_map(self) -> Dict:
+        # ponytail: no class-level cache — bound methods must be per-instance (issue #46)
+        from ..strategies.base import StrategyType
+        return {
+            StrategyType.BULL_CALL_SPREAD: self._create_bull_call_spread,
+            StrategyType.BEAR_PUT_SPREAD:  self._create_bear_put_spread,
+            StrategyType.IRON_CONDOR:      self._create_iron_condor,
+            StrategyType.SHORT_CALL:       self._create_covered_call,
+            # ponytail: BUTTERFLY omitted until _create_butterfly is implemented;
+            # mapping it to _create_iron_condor returned a factually wrong payload
+        }
+
+    def _find_checkpoint(self) -> Optional[str]:
+        """Return the most-recently-modified RegimeDetector checkpoint, or None."""
+        # Anchor to repo root so this works regardless of process cwd
+        repo_root = Path(__file__).parents[3]
+        patterns = [
+            'models/checkpoints/best_model.pth',
+            'models/checkpoints/checkpoint_epoch_*.pth',
+            'training_runs/*/checkpoints/best_model.pth',
+            'training_runs/*/checkpoints/checkpoint_epoch_*.pth',
+            'training_runs/*/inference_model.pth',
+        ]
+        matches = [str(m) for p in patterns for m in repo_root.glob(p)]
+        return max(matches, key=os.path.getmtime) if matches else None
+
+    def _heuristic_regime(self, hist: pd.DataFrame) -> int:
+        """Map SMA-crossover sentiment to a RegimeType int. Fallback when no ML checkpoint."""
+        from ..data.regime_labeler import RegimeType
+        sentiment = self._analyze_market_sentiment(hist)
+        return {
+            'bullish': int(RegimeType.BULL_TRENDING),
+            'bearish': int(RegimeType.BEAR_TRENDING),
+        }.get(sentiment, int(RegimeType.SIDEWAYS_RANGING))
+
+    def _detect_regime(self, symbol: str, hist: pd.DataFrame) -> int:
+        """
+        Classify market regime via the ML pipeline.
+
+        Loads the most recent RegimeDetector checkpoint if one exists, runs the
+        48-dimensional feature vector through it, and returns the predicted regime
+        index.  Falls back to a simple SMA-crossover heuristic when no checkpoint
+        is present or the pipeline raises.
+
+        Note: RegimeStateVector.calculate() fetches its own price data internally,
+        so hist is fetched twice in the ML path.  ponytail: consolidate when
+        RegimeStateVector accepts pre-fetched data.
+        """
+        checkpoint = self._find_checkpoint()
+        if not checkpoint:
+            logger.info("No RegimeDetector checkpoint found; using heuristic regime detection")
+            return self._heuristic_regime(hist)
+
+        try:
+            import torch
+            from ..models.regime_detector import RegimeDetector
+            from ..features.regime_features import RegimeStateVector
+
+            data = torch.load(checkpoint, map_location='cpu', weights_only=True)
+            if 'model_state_dict' in data:      # trainer checkpoint format
+                state_dict = data['model_state_dict']
+            elif 'state_dict' in data:          # inference export format
+                state_dict = data['state_dict']
+            else:
+                state_dict = data               # raw state dict
+            model = RegimeDetector()
+            model.load_state_dict(state_dict)
+            model.eval()
+
+            state_vector = RegimeStateVector(include_extended=True).calculate(symbol)
+            x = torch.tensor(state_vector.values, dtype=torch.float32).unsqueeze(0)
+            predicted, _, _ = model.predict_regime(x)
+            regime = int(predicted[0].item())
+            logger.info(f"ML regime detection: {regime} for {symbol}")
+            return regime
+        except Exception as exc:
+            logger.warning(f"ML regime detection failed ({exc}); using heuristic")
+            return self._heuristic_regime(hist)
+
     def get_actionable_recommendations(self, symbol: str, analysis_days: int = 5) -> List[Dict[str, Any]]:
         """
         Get actionable options recommendations with specific contracts and dates.
+
+        Uses the ML pipeline (RegimeDetector → StrategyFactory) for regime-aware
+        strategy selection when a trained checkpoint is available; falls back to
+        a heuristic SMA-crossover regime when not.
 
         Args:
             symbol: Stock symbol to analyze
@@ -96,38 +184,48 @@ class EnhancedStrategyRecommender:
             List of actionable trading recommendations with specific contracts
         """
         try:
-            # Get current market data
             stock = yf.Ticker(symbol)
-
-            # Get current price and historical data
             hist = stock.history(period="60d", interval="1d")
             current_price = float(hist['Close'].iloc[-1])
 
-            # Get options chain
             expirations = stock.options
             if not expirations:
                 return self._fallback_recommendations(symbol, current_price)
 
-            recommendations = []
-
-            # Analyze market conditions
-            market_sentiment = self._analyze_market_sentiment(hist)
             volatility = self._calculate_implied_volatility(hist)
-            support_resistance = self._find_support_resistance(hist)
 
-            # Generate specific strategy recommendations
-            for strategy_type in ['bullish_call_spread', 'bearish_put_spread', 'iron_condor', 'covered_call']:
-                rec = self._generate_strategy_recommendation(
-                    symbol, current_price, expirations, market_sentiment,
-                    volatility, support_resistance, strategy_type, stock
-                )
+            # Regime detection: try ML pipeline, fall back to heuristic
+            regime = self._detect_regime(symbol, hist)
+
+            # Strategy selection via StrategyFactory
+            factory = StrategyFactory()
+            factory_recs = factory.get_recommended_strategies(regime, max_recommendations=5)
+
+            # Choose expiration (25-50 DTE; fall back to nearest available)
+            target_expiration = next(
+                (e for e in expirations
+                 if 25 <= (datetime.strptime(e, '%Y-%m-%d') - datetime.now()).days <= 50),
+                expirations[0]
+            )
+
+            try:
+                option_chain = stock.option_chain(target_expiration)
+            except Exception as e:
+                logger.warning(f"Could not fetch option chain: {e}")
+                return self._fallback_recommendations(symbol, current_price)
+
+            builder_map = self._get_builder_map()
+            recommendations = []
+            for factory_rec in factory_recs:
+                builder = builder_map.get(factory_rec.strategy_type)
+                if builder is None:
+                    continue
+                rec = builder(symbol, current_price, option_chain, target_expiration, volatility)
                 if rec:
                     recommendations.append(rec)
 
-            # Sort by expected profit/risk ratio
             recommendations.sort(key=lambda x: x['profit_risk_ratio'], reverse=True)
-
-            return recommendations[:3]  # Return top 3 recommendations
+            return recommendations[:3]
 
         except Exception as e:
             logger.error(f"Error generating enhanced recommendations for {symbol}: {e}")
@@ -153,55 +251,6 @@ class EnhancedStrategyRecommender:
         """Calculate historical volatility as proxy for IV"""
         returns = hist['Close'].pct_change().dropna()
         return float(returns.std() * np.sqrt(252))  # Annualized volatility
-
-    def _find_support_resistance(self, hist: pd.DataFrame) -> Dict[str, float]:
-        """Identify key support and resistance levels"""
-        highs = hist['High'].tail(20)
-        lows = hist['Low'].tail(20)
-
-        resistance = float(highs.quantile(0.9))
-        support = float(lows.quantile(0.1))
-
-        return {'support': support, 'resistance': resistance}
-
-    def _generate_strategy_recommendation(self, symbol: str, current_price: float,
-                                        expirations: List[str], market_sentiment: str,
-                                        volatility: float, support_resistance: Dict[str, float],
-                                        strategy_type: str, stock) -> Optional[Dict[str, Any]]:
-        """Generate a specific strategy recommendation with contract details"""
-
-        # Choose expiration (30-45 days out is typically optimal)
-        target_expiration = None
-        for exp in expirations:
-            exp_date = datetime.strptime(exp, '%Y-%m-%d')
-            days_to_exp = (exp_date - datetime.now()).days
-            if 25 <= days_to_exp <= 50:
-                target_expiration = exp
-                break
-
-        if not target_expiration:
-            target_expiration = expirations[0] if expirations else None
-
-        if not target_expiration:
-            return None
-
-        try:
-            option_chain = stock.option_chain(target_expiration)
-        except Exception as e:
-            logger.warning(f"Could not fetch option chain for {target_expiration}: {e}")
-            return None
-
-        # Generate strategy based on market conditions
-        if strategy_type == 'bullish_call_spread' and market_sentiment in ['bullish', 'neutral']:
-            return self._create_bull_call_spread(symbol, current_price, option_chain, target_expiration, volatility)
-        elif strategy_type == 'bearish_put_spread' and market_sentiment in ['bearish', 'neutral']:
-            return self._create_bear_put_spread(symbol, current_price, option_chain, target_expiration, volatility)
-        elif strategy_type == 'iron_condor' and market_sentiment == 'neutral':
-            return self._create_iron_condor(symbol, current_price, option_chain, target_expiration, volatility)
-        elif strategy_type == 'covered_call' and market_sentiment in ['neutral', 'mildly_bullish']:
-            return self._create_covered_call(symbol, current_price, option_chain, target_expiration, volatility)
-
-        return None
 
     def _create_bull_call_spread(self, symbol: str, current_price: float,
                                option_chain, expiration: str, volatility: float) -> Dict[str, Any]:
@@ -382,7 +431,9 @@ class EnhancedStrategyRecommender:
 
         net_credit = (short_put_price + short_call_price) - (long_put_price + long_call_price)
         max_profit = net_credit
-        max_loss = (short_call_strike - long_call_strike) - net_credit
+        call_wing = short_call_strike - long_call_strike
+        put_wing  = short_put_strike  - long_put_strike
+        max_loss  = max(call_wing, put_wing) - net_credit
 
         # Breakevens
         upper_breakeven = short_call_strike + net_credit
@@ -538,14 +589,18 @@ class EnhancedStrategyRecommender:
 
     def _days_to_expiration(self, expiration: str) -> int:
         """Calculate days until expiration"""
-        exp_date = datetime.strptime(expiration, '%Y-%m-%d')
-        return (exp_date - datetime.now()).days
+        exp_date = datetime.strptime(expiration, '%Y-%m-%d').date()
+        return (exp_date - datetime.now().date()).days
 
     def _calculate_probability_above(self, current_price: float, target_price: float,
                                    volatility: float, days: int) -> float:
         """Calculate probability stock will be above target using Black-Scholes"""
         if days <= 0:
-            return 1.0 if current_price > target_price else 0.0
+            if current_price > target_price:
+                return 1.0
+            if current_price == target_price:
+                return 0.5  # ATM at expiry: equal probability of finishing above or below
+            return 0.0
 
         t = days / 365.0
         d1 = (np.log(current_price / target_price) + (self.risk_free_rate + 0.5 * volatility**2) * t) / (volatility * np.sqrt(t))
