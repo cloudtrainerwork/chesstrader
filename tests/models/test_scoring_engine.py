@@ -28,7 +28,7 @@ class TestScoringEngine:
             StrategyType.IRON_CONDOR: 0.35,
             StrategyType.BULL_CALL_SPREAD: 0.25,
             StrategyType.LONG_STRADDLE: 0.20,
-            StrategyType.IRON_BUTTERFLY: 0.15,
+            StrategyType.BUTTERFLY: 0.15,
             StrategyType.BEAR_PUT_SPREAD: 0.05
         }
 
@@ -66,7 +66,7 @@ class TestScoringEngine:
                 'volatility': 0.35,
                 'backtest_samples': 75
             },
-            StrategyType.IRON_BUTTERFLY: {
+            StrategyType.BUTTERFLY: {
                 'max_drawdown': 0.10,
                 'var_95': 0.04,
                 'win_rate': 0.65,
@@ -95,7 +95,7 @@ class TestScoringEngine:
             StrategyType.IRON_CONDOR: 0.12,
             StrategyType.BULL_CALL_SPREAD: 0.15,
             StrategyType.LONG_STRADDLE: 0.20,
-            StrategyType.IRON_BUTTERFLY: 0.08,
+            StrategyType.BUTTERFLY: 0.08,
             StrategyType.BEAR_PUT_SPREAD: 0.10
         }
 
@@ -144,6 +144,30 @@ class TestScoringEngine:
 
         # Iron Condor has higher win rate, should have higher Kelly size
         assert iron_condor.kelly_size > straddle.kelly_size
+
+    def test_kelly_sizing_none_without_historical_data(self, scoring_engine):
+        """Kelly size is None (not 0) when win_rate/avg_win/avg_loss are absent.
+
+        Regression for issue #17: returning 0 made "no data" indistinguishable
+        from a genuine "no edge" result.
+        """
+        probs = {StrategyType.IRON_CONDOR: 0.5}
+        risk_metrics = {StrategyType.IRON_CONDOR: {'max_drawdown': 0.1, 'var_95': 0.03}}
+        expected_returns = {StrategyType.IRON_CONDOR: 0.1}
+
+        scored = scoring_engine.score_strategies(probs, risk_metrics, expected_returns)
+        assert scored[0].kelly_size is None
+
+    def test_kelly_sizing_zero_for_no_edge(self, scoring_engine):
+        """Kelly size is 0.0 (not None) when data is present but there is no edge."""
+        probs = {StrategyType.IRON_CONDOR: 0.5}
+        risk_metrics = {StrategyType.IRON_CONDOR: {
+            'win_rate': 0.5, 'avg_win': 1.0, 'avg_loss': 1.0,
+            'max_drawdown': 0.1, 'var_95': 0.03}}
+        expected_returns = {StrategyType.IRON_CONDOR: 0.1}
+
+        scored = scoring_engine.score_strategies(probs, risk_metrics, expected_returns)
+        assert scored[0].kelly_size == 0.0
 
     def test_risk_adjustment(self, scoring_engine):
         """Test risk adjustment in scoring."""

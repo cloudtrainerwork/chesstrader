@@ -471,8 +471,12 @@ class EnhancedStrategyRecommender:
             return None
 
         premium = self._get_option_price(call_option, 'bid')
-        max_profit = premium + (strike - current_price) * 100  # Assume 100 shares
-        max_loss = (current_price * 100) - premium  # Stock could go to zero
+        # premium is per share; scale it to the 100-share contract so every term
+        # is in total dollars. Max profit if called away = premium + capital gain
+        # to the strike; max loss if the stock goes to zero = cost basis less the
+        # premium collected.
+        max_profit = (premium + strike - current_price) * 100
+        max_loss = (current_price - premium) * 100  # Stock could go to zero
 
         # Probability call expires worthless (we keep premium)
         prob_profit = 1 - self._calculate_probability_above(current_price, strike, volatility,
@@ -513,7 +517,10 @@ class EnhancedStrategyRecommender:
             },
             'current_price': current_price,
             'days_to_expiration': self._days_to_expiration(expiration),
-            'profit_risk_ratio': round(max_profit / 1000, 2)  # Simplified ratio for covered calls
+            # Reward-to-risk ratio, consistent with the spread strategies above.
+            # (Previously max_profit / 1000, a fabricated constant that ranked by
+            # raw dollar profit rather than risk-adjusted return.)
+            'profit_risk_ratio': round(max_profit / max_loss, 2) if max_loss > 0 else 0
         }
 
     # Helper methods
@@ -542,9 +549,12 @@ class EnhancedStrategyRecommender:
 
         t = days / 365.0
         d1 = (np.log(current_price / target_price) + (self.risk_free_rate + 0.5 * volatility**2) * t) / (volatility * np.sqrt(t))
+        # Risk-neutral probability that S_T > target is N(d2), not N(d1).
+        # N(d1) is the call delta; using it overstates the probability.
+        d2 = d1 - volatility * np.sqrt(t)
 
         from scipy.stats import norm
-        return norm.cdf(d1)
+        return norm.cdf(d2)
 
     def _calculate_probability_below(self, current_price: float, target_price: float,
                                    volatility: float, days: int) -> float:

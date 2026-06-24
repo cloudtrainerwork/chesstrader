@@ -54,11 +54,16 @@ class PerformanceCalculator:
             # Calculate period length for annualization
             if len(equity_curve) > 1:
                 if 'datetime' in equity_curve.columns:
+                    # Real timestamps: elapsed calendar time over calendar days/yr.
                     days = (equity_curve['datetime'].iloc[-1] - equity_curve['datetime'].iloc[0]).days
+                    years = max(days / 365.25, 1 / self.trading_days)
                 else:
-                    days = len(equity_curve)  # Assume daily data
+                    # No timestamps: each row is a trading bar, so annualize by
+                    # trading days per year, not calendar days. Dividing a
+                    # trading-bar count by 365.25 over-annualizes the return.
+                    bars = len(equity_curve)
+                    years = max(bars / self.trading_days, 1 / self.trading_days)
 
-                years = max(days / 365.25, 1/self.trading_days)  # Minimum one trading day
                 metrics['annualized_return'] = (1 + metrics['total_return']) ** (1/years) - 1
             else:
                 metrics['annualized_return'] = 0.0

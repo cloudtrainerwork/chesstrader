@@ -135,6 +135,16 @@ class TestImpliedVolatilityEstimator(unittest.TestCase):
         self.assertGreater(iv, 0.05)
         self.assertLess(iv, 1.0)
 
+    def test_iv_estimation_is_deterministic(self):
+        """estimate_iv must return the same value on repeated calls (issue #9)."""
+        first = self.iv_estimator.estimate_iv('AAPL')
+        second = self.iv_estimator.estimate_iv('AAPL')
+        self.assertEqual(first, second)
+        # And distinct symbol categories get distinct, stable bases.
+        self.assertEqual(self.iv_estimator.estimate_iv('SPY'), 0.15)
+        self.assertEqual(self.iv_estimator.estimate_iv('AAPL'), 0.25)
+        self.assertEqual(self.iv_estimator.estimate_iv('XYZ'), 0.30)
+
     def test_position_iv_estimation(self):
         """Test position-level IV estimation."""
         position = Position(

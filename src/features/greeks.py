@@ -68,7 +68,14 @@ class GreeksCalculator:
             option_type: 'CALL' or 'PUT'
 
         Returns:
-            Gamma value normalized by underlying price
+            Price-scale-invariant gamma (raw gamma * S).
+
+            Raw Black-Scholes gamma scales as 1/S, so multiplying by S removes
+            the price-level dependence and yields a feature comparable across
+            underlyings of any price. This is intentionally the opposite
+            operation from theta and vega, whose raw values scale as S and are
+            therefore divided by S to achieve the same normalization. Do not
+            "fix" this to gamma / S: that would reintroduce price dependence.
         """
         if T <= 0 or sigma <= 0 or S <= 0:
             return 0.0
@@ -76,7 +83,7 @@ class GreeksCalculator:
         d1 = self._calculate_d1(S, K, T, r, sigma)
         gamma = norm.pdf(d1) / (S * sigma * math.sqrt(T))
 
-        # Normalize by underlying price to get relative gamma
+        # Multiply by S so the result is price-scale-invariant (raw gamma ~ 1/S).
         return float(gamma * S)
 
     def calculate_theta(self, S: float, K: float, T: float, r: float,
@@ -236,31 +243,33 @@ class ImpliedVolatilityEstimator:
             else:
                 base_vol = 0.30  # General stocks
 
-            # Add some randomness to simulate market conditions
-            import time
-            import random
-            random.seed(int(time.time()) % 100)
-            adjustment = random.uniform(0.8, 1.2)
-
-            return base_vol * adjustment
+            # Deterministic estimate: return the per-category base volatility.
+            # Previously this was multiplied by a wall-clock-seeded random factor
+            # (random.seed(int(time.time()) % 100)), so the same symbol returned
+            # different IVs on consecutive calls and no Greek or POP derived from
+            # it was reproducible.
+            return base_vol
 
         except Exception:
             # Fallback to 30% volatility
             return 0.30
 
-    def get_iv_for_position(self, position: Position) -> List[float]:
+    def get_iv_for_position(self, position: Position, symbol: Optional[str] = None) -> List[float]:
         """
         Get IV estimates for all legs of a position.
 
         Args:
             position: Position to estimate IV for
+            symbol: Underlying symbol, when known, used to pick the base IV
 
         Returns:
             List of IV estimates for each leg
         """
-        # In a real implementation, this would fetch option chain data
-        # For now, use the same IV for all legs with slight variations
-        base_iv = self.estimate_iv("SPY")  # Use SPY as base
+        # In a real implementation, this would fetch option chain data.
+        # Use the underlying symbol when the caller knows it. Without it, assume
+        # a general single-stock volatility rather than SPY (a low-vol ETF),
+        # which previously underestimated IV for every individual name.
+        base_iv = self.estimate_iv(symbol) if symbol else self.estimate_iv("UNKNOWN")
 
         iv_estimates = []
         for i, (strike, option_type) in enumerate(zip(position.strikes, position.option_types)):

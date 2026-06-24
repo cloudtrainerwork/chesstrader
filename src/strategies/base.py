@@ -49,8 +49,12 @@ class StrategyType(Enum):
 
     # Complex strategies
     IRON_CONDOR = "iron_condor"
+    # BUTTERFLY is the canonical member for the iron butterfly strategy
+    # (see IronButterflyStrategy.get_strategy_type and the factory registry).
+    # A second IRON_BUTTERFLY = "butterfly" member previously aliased BUTTERFLY
+    # (identical value), so the two were the same object and collided as dict
+    # keys. Removed to eliminate the silent shadowing.
     BUTTERFLY = "butterfly"
-    IRON_BUTTERFLY = "butterfly"
 
 
 class StrategyCategory(Enum):
