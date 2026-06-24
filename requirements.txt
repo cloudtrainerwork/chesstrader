@@ -19,6 +19,11 @@ torch>=2.0.0
 scikit-learn>=1.3.0
 scipy>=1.11.0
 
+# Reinforcement learning environments (src/environments uses gym.spaces).
+# gym is unmaintained; gymnasium is the maintained drop-in successor and a
+# future migration target, but the current code imports `gym` directly.
+gym>=0.26.2
+
 # Additional utilities for ML/AI (future use)
 matplotlib>=3.7.0
 seaborn>=0.12.0
