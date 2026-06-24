@@ -236,11 +236,15 @@ class Position:
 
         # For spreads and complex strategies, calculate based on strike differences
         elif self.strategy_type in [StrategyType.BULL_CALL_SPREAD, StrategyType.BEAR_PUT_SPREAD]:
+            # Debit spread: max profit = spread width - net debit paid. The old
+            # max(width - debit, debit) fallback returned the debit (i.e. the
+            # max loss) whenever the debit exceeded half the width, which is
+            # never the correct max profit.
             spread_width = abs(self.strikes[1] - self.strikes[0])
-            net_credit = sum(
-                -qty * price for qty, price in zip(self.quantities, self.entry_prices)
-            )
-            return max(spread_width * abs(self.quantities[0]) - abs(net_credit), abs(net_credit))
+            net_debit = abs(sum(
+                qty * price for qty, price in zip(self.quantities, self.entry_prices)
+            ))
+            return spread_width * abs(self.quantities[0]) - net_debit
 
         elif self.strategy_type in [StrategyType.BEAR_CALL_SPREAD, StrategyType.BULL_PUT_SPREAD]:
             net_credit = sum(
