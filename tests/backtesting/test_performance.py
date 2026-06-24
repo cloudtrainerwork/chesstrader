@@ -58,7 +58,11 @@ class TestPerformanceCalculator:
         """Test Sharpe ratio calculation with risk-free rate"""
         # Create known equity curve for predictable Sharpe ratio
         dates = pd.date_range('2023-01-01', periods=252, freq='D')
-        returns = np.full(252, 0.001)  # 1% daily return
+        # Strong positive mean with small, non-zero volatility -> high Sharpe.
+        # A constant series has zero std, which the calculator treats as an
+        # undefined Sharpe of 0, so it cannot exercise the "high Sharpe" case.
+        returns = np.full(252, 0.001)
+        returns[1::2] = 0.0008
         equity_values = 100000 * np.cumprod(1 + returns)
 
         equity_curve = pd.DataFrame({
@@ -68,9 +72,10 @@ class TestPerformanceCalculator:
 
         metrics = self.calculator.calculate_all_metrics(equity_curve, pd.DataFrame())
 
-        # With consistent 1% daily returns and no volatility, Sharpe should be very high
+        # Consistent low-volatility positive returns -> high Sharpe and a
+        # solidly positive annualized return (the old `> 10` asserted >1000%).
         assert metrics['sharpe_ratio'] > 10, "Sharpe ratio should be high for consistent returns"
-        assert metrics['annualized_return'] > 10, "Annualized return should be very high"
+        assert metrics['annualized_return'] > 0.10, "Annualized return should be solidly positive"
 
     def test_max_drawdown_calculation(self):
         """Test maximum drawdown calculation"""
@@ -95,13 +100,13 @@ class TestPerformanceCalculator:
         # Create trade history with known win rate
         trade_history = pd.DataFrame({
             'datetime': pd.date_range('2023-01-01', periods=10, freq='D'),
-            'pnl': [100, -50, 200, 150, -75, 300, -25, 180, -100, 250]  # 7 wins, 3 losses
+            'pnl': [100, -50, 200, 150, -75, 300, -25, 180, -100, 250]  # 6 wins, 4 losses
         })
 
         metrics = self.calculator.calculate_all_metrics(pd.DataFrame(), trade_history)
 
-        # Win rate should be 70% (7 out of 10 trades)
-        expected_win_rate = 0.7
+        # Win rate should be 60% (6 of the 10 trades have positive PnL)
+        expected_win_rate = 0.6
         assert abs(metrics['win_rate'] - expected_win_rate) < 0.001
 
     def test_profit_factor_calculation(self):
@@ -140,12 +145,16 @@ class TestPerformanceCalculator:
     def test_annualization(self):
         """Test proper annualization using 252 trading days"""
         # One year of daily data
-        dates = pd.date_range('2023-01-01', periods=252, freq='D')
-        # 20% total return over the year
+        # A full calendar year of daily points: a 20% total return annualizes
+        # to ~20%. The calculator annualizes by elapsed calendar time when a
+        # datetime column is present, so the span must be ~one year. (The
+        # previous 252 freq='D' rows spanned only 251 days, so 20% annualized
+        # to ~30%.)
+        dates = pd.date_range('2023-01-01', '2023-12-31', freq='D')
         final_value = 120000
         equity_curve = pd.DataFrame({
             'datetime': dates,
-            'total': np.linspace(100000, final_value, 252)
+            'total': np.linspace(100000, final_value, len(dates))
         })
 
         metrics = self.calculator.calculate_all_metrics(equity_curve, pd.DataFrame())
