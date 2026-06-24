@@ -68,7 +68,14 @@ class GreeksCalculator:
             option_type: 'CALL' or 'PUT'
 
         Returns:
-            Gamma value normalized by underlying price
+            Price-scale-invariant gamma (raw gamma * S).
+
+            Raw Black-Scholes gamma scales as 1/S, so multiplying by S removes
+            the price-level dependence and yields a feature comparable across
+            underlyings of any price. This is intentionally the opposite
+            operation from theta and vega, whose raw values scale as S and are
+            therefore divided by S to achieve the same normalization. Do not
+            "fix" this to gamma / S: that would reintroduce price dependence.
         """
         if T <= 0 or sigma <= 0 or S <= 0:
             return 0.0
@@ -76,7 +83,7 @@ class GreeksCalculator:
         d1 = self._calculate_d1(S, K, T, r, sigma)
         gamma = norm.pdf(d1) / (S * sigma * math.sqrt(T))
 
-        # Normalize by underlying price to get relative gamma
+        # Multiply by S so the result is price-scale-invariant (raw gamma ~ 1/S).
         return float(gamma * S)
 
     def calculate_theta(self, S: float, K: float, T: float, r: float,
