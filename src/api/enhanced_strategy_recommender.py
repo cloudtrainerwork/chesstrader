@@ -88,27 +88,28 @@ class EnhancedStrategyRecommender:
         else:
             return (bid + ask) / 2
 
-    # Map StrategyType enum values to the contract-builder methods we have implemented.
-    # Types not in this map are skipped — we have no contract-construction logic for them.
-    _BUILDER_MAP = None  # populated lazily after StrategyType is importable
-
     def _get_builder_map(self) -> Dict:
-        if self._BUILDER_MAP is None:
-            from ..strategies.base import StrategyType
-            EnhancedStrategyRecommender._BUILDER_MAP = {
-                StrategyType.BULL_CALL_SPREAD: self._create_bull_call_spread,
-                StrategyType.BEAR_PUT_SPREAD:  self._create_bear_put_spread,
-                StrategyType.IRON_CONDOR:      self._create_iron_condor,
-                # ponytail: covered call ≈ short call against owned shares; no separate StrategyType
-                StrategyType.SHORT_CALL:       self._create_covered_call,
-                # Butterfly uses the same iron-condor builder as a reasonable approximation
-                StrategyType.BUTTERFLY:        self._create_iron_condor,
-            }
-        return self._BUILDER_MAP
+        # ponytail: no class-level cache — bound methods must be per-instance (issue #46)
+        from ..strategies.base import StrategyType
+        return {
+            StrategyType.BULL_CALL_SPREAD: self._create_bull_call_spread,
+            StrategyType.BEAR_PUT_SPREAD:  self._create_bear_put_spread,
+            StrategyType.IRON_CONDOR:      self._create_iron_condor,
+            StrategyType.SHORT_CALL:       self._create_covered_call,
+            StrategyType.BUTTERFLY:        self._create_iron_condor,
+        }
 
     def _find_checkpoint(self) -> Optional[str]:
         """Return the most-recently-modified RegimeDetector checkpoint, or None."""
-        patterns = ['checkpoints/regime_detector*.pt', 'checkpoints/regime_detector*.pth']
+        # Matches trainer output (models/checkpoints/) and training script output
+        # (training_runs/<timestamp>/checkpoints/ and .../inference_model.pth)
+        patterns = [
+            'models/checkpoints/best_model.pth',
+            'models/checkpoints/checkpoint_epoch_*.pth',
+            'training_runs/*/checkpoints/best_model.pth',
+            'training_runs/*/checkpoints/checkpoint_epoch_*.pth',
+            'training_runs/*/inference_model.pth',
+        ]
         matches = [f for p in patterns for f in glob.glob(p)]
         return max(matches, key=os.path.getmtime) if matches else None
 
@@ -144,11 +145,18 @@ class EnhancedStrategyRecommender:
             from ..models.regime_detector import RegimeDetector
             from ..features.regime_features import RegimeStateVector
 
+            data = torch.load(checkpoint, map_location='cpu', weights_only=True)
+            if 'model_state_dict' in data:      # trainer checkpoint format
+                state_dict = data['model_state_dict']
+            elif 'state_dict' in data:          # inference export format
+                state_dict = data['state_dict']
+            else:
+                state_dict = data               # raw state dict
             model = RegimeDetector()
-            model.load_state_dict(torch.load(checkpoint, map_location='cpu', weights_only=True))
+            model.load_state_dict(state_dict)
             model.eval()
 
-            state_vector = RegimeStateVector().calculate(symbol)
+            state_vector = RegimeStateVector(include_extended=True).calculate(symbol)
             x = torch.tensor(state_vector.values, dtype=torch.float32).unsqueeze(0)
             predicted, _, _ = model.predict_regime(x)
             regime = int(predicted[0].item())
