@@ -70,8 +70,7 @@ class RegimeTrainer:
             mode='min',
             factor=self.config.lr_scheduler_factor,
             patience=self.config.lr_scheduler_patience,
-            min_lr=self.config.lr_scheduler_min_lr,
-            verbose=True
+            min_lr=self.config.lr_scheduler_min_lr
         )
 
         # Mixed precision training
