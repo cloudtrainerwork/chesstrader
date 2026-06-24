@@ -124,9 +124,10 @@ class TrendIndicators(FeatureEngineering):
         di_plus = 100 * (dm_plus_smooth / atr)
         di_minus = 100 * (dm_minus_smooth / atr)
 
-        # ADX calculation
-        dx = 100 * np.abs(di_plus - di_minus) / (di_plus + di_minus)
-        adx = dx.ewm(alpha=alpha, adjust=False).mean()
+        # ADX calculation — guard zero denominator (occurs on first `period` bars)
+        denom = di_plus + di_minus
+        dx_values = np.where(denom > 0, 100 * np.abs(di_plus - di_minus) / denom, 0.0)
+        adx = pd.Series(dx_values, index=di_plus.index).ewm(alpha=alpha, adjust=False).mean()
 
         return adx, di_plus, di_minus
 
@@ -237,6 +238,8 @@ class MomentumIndicators(FeatureEngineering):
         highest_high = high.rolling(window=k_period).max()
 
         k_percent = 100 * (close - lowest_low) / (highest_high - lowest_low)
+        # flat price produces 0/0 → NaN, or non-zero/0 → inf; replace both with 50 (neutral)
+        k_percent = k_percent.replace([np.inf, -np.inf], np.nan).fillna(50.0)
         d_percent = k_percent.rolling(window=d_period).mean()
 
         return k_percent, d_percent
@@ -400,14 +403,16 @@ class VolumeFeatures(FeatureEngineering):
 
     def calculate_obv(self, close: pd.Series, volume: pd.Series) -> pd.Series:
         """Calculate On Balance Volume."""
+        # Fill NaN volume (common for the most recent yfinance bar) with 0 before accumulating
+        vol = volume.fillna(0)
         obv = pd.Series(index=close.index, dtype=float)
-        obv.iloc[0] = volume.iloc[0]
+        obv.iloc[0] = vol.iloc[0]
 
         for i in range(1, len(close)):
             if close.iloc[i] > close.iloc[i-1]:
-                obv.iloc[i] = obv.iloc[i-1] + volume.iloc[i]
+                obv.iloc[i] = obv.iloc[i-1] + vol.iloc[i]
             elif close.iloc[i] < close.iloc[i-1]:
-                obv.iloc[i] = obv.iloc[i-1] - volume.iloc[i]
+                obv.iloc[i] = obv.iloc[i-1] - vol.iloc[i]
             else:
                 obv.iloc[i] = obv.iloc[i-1]
 
@@ -579,9 +584,12 @@ class EventFeatures(FeatureEngineering):
         # 3. Days to options expiration (stubbed - would need options calendar)
         features['days_to_opex'] = 10.0  # Assume average to monthly expiration
 
-        # Normalize to [-1, 1] range
+        # Normalize to [-1, 1] range — skip constant columns (minmax on constant = 0/0)
         for col in features.columns:
-            features[col] = self.standardize(features[col], method='minmax')
+            if features[col].nunique() > 1:
+                features[col] = self.standardize(features[col], method='minmax')
+            else:
+                features[col] = 0.0  # constant stub: map to neutral midpoint
 
         self.validate(features)
         return features

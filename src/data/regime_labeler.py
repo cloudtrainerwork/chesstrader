@@ -28,8 +28,6 @@ class RegimeType(IntEnum):
     RECOVERY = 5           # Post-decline bounce patterns
     DISTRIBUTION = 6       # Pre-decline weakening
     CRISIS = 7             # Extreme stress conditions
-    BULL_VOLATILE = 2      # Alias for high volatility bull environment
-    SIDEWAYS_LOW_VOL = 3   # Alias for low volatility sideways environment
 
 
 class RegimeMetrics:
@@ -100,7 +98,7 @@ class RegimeLabeler:
             'rsi_low': 45,
             'vix_high': 25,
             'vix_low': 15,
-            'vol_high_pct': 30,  # 30% annualized volatility
+            'vol_high_pct': 0.30,  # 30% annualized volatility (decimal, matches volatility units)
             'drawdown_crisis': -0.15,  # 15% drawdown for crisis
             'recovery_bounce_min': 0.05,  # 5% bounce minimum for recovery
             'distribution_weakness': -0.02,  # 2% weakness after strength

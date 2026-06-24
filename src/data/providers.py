@@ -9,7 +9,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import yfinance as yf
@@ -129,12 +129,13 @@ class YFinanceProvider:
             raise DataNotAvailable(f"No current price available for {symbol}")
         return float(history["Close"].iloc[-1])
 
-    def batch_get_prices(self, symbols: List[str]) -> Dict[str, PriceData]:
+    def batch_get_prices(self, symbols: List[str], days: int = 730) -> Dict[str, PriceData]:
         """Fetch price history for several symbols, skipping failures."""
+        start = datetime.now() - timedelta(days=days)
         results: Dict[str, PriceData] = {}
         for symbol in symbols:
             try:
-                results[symbol] = self.get_price_history(symbol)
+                results[symbol] = self.get_price_history(symbol, start=start)
             except DataProviderError:
                 continue
         return results

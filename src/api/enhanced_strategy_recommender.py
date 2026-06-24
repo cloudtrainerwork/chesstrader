@@ -9,6 +9,7 @@ import glob
 import logging
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 import numpy as np
 import pandas as pd
@@ -96,13 +97,14 @@ class EnhancedStrategyRecommender:
             StrategyType.BEAR_PUT_SPREAD:  self._create_bear_put_spread,
             StrategyType.IRON_CONDOR:      self._create_iron_condor,
             StrategyType.SHORT_CALL:       self._create_covered_call,
-            StrategyType.BUTTERFLY:        self._create_iron_condor,
+            # ponytail: BUTTERFLY omitted until _create_butterfly is implemented;
+            # mapping it to _create_iron_condor returned a factually wrong payload
         }
 
     def _find_checkpoint(self) -> Optional[str]:
         """Return the most-recently-modified RegimeDetector checkpoint, or None."""
-        # Matches trainer output (models/checkpoints/) and training script output
-        # (training_runs/<timestamp>/checkpoints/ and .../inference_model.pth)
+        # Anchor to repo root so this works regardless of process cwd
+        repo_root = Path(__file__).parents[3]
         patterns = [
             'models/checkpoints/best_model.pth',
             'models/checkpoints/checkpoint_epoch_*.pth',
@@ -110,7 +112,7 @@ class EnhancedStrategyRecommender:
             'training_runs/*/checkpoints/checkpoint_epoch_*.pth',
             'training_runs/*/inference_model.pth',
         ]
-        matches = [f for p in patterns for f in glob.glob(p)]
+        matches = [str(m) for p in patterns for m in repo_root.glob(p)]
         return max(matches, key=os.path.getmtime) if matches else None
 
     def _heuristic_regime(self, hist: pd.DataFrame) -> int:
@@ -429,7 +431,9 @@ class EnhancedStrategyRecommender:
 
         net_credit = (short_put_price + short_call_price) - (long_put_price + long_call_price)
         max_profit = net_credit
-        max_loss = (short_call_strike - long_call_strike) - net_credit
+        call_wing = short_call_strike - long_call_strike
+        put_wing  = short_put_strike  - long_put_strike
+        max_loss  = max(call_wing, put_wing) - net_credit
 
         # Breakevens
         upper_breakeven = short_call_strike + net_credit
@@ -585,14 +589,18 @@ class EnhancedStrategyRecommender:
 
     def _days_to_expiration(self, expiration: str) -> int:
         """Calculate days until expiration"""
-        exp_date = datetime.strptime(expiration, '%Y-%m-%d')
-        return (exp_date - datetime.now()).days
+        exp_date = datetime.strptime(expiration, '%Y-%m-%d').date()
+        return (exp_date - datetime.now().date()).days
 
     def _calculate_probability_above(self, current_price: float, target_price: float,
                                    volatility: float, days: int) -> float:
         """Calculate probability stock will be above target using Black-Scholes"""
         if days <= 0:
-            return 1.0 if current_price > target_price else 0.0
+            if current_price > target_price:
+                return 1.0
+            if current_price == target_price:
+                return 0.5  # ATM at expiry: equal probability of finishing above or below
+            return 0.0
 
         t = days / 365.0
         d1 = (np.log(current_price / target_price) + (self.risk_free_rate + 0.5 * volatility**2) * t) / (volatility * np.sqrt(t))

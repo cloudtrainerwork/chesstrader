@@ -132,8 +132,9 @@ class RegimeTrainer:
 
         # Confidence loss - if no targets provided, use max probability as pseudo-target
         if confidence_targets is None:
-            # Use max probability as confidence target (unsupervised confidence learning)
-            confidence_targets = torch.max(regime_probs, dim=1)[0].unsqueeze(1).detach()
+            # regime_probs are raw logits; apply softmax to get real probabilities for the target
+            regime_soft = torch.softmax(regime_probs, dim=1).detach()
+            confidence_targets = torch.max(regime_soft, dim=1)[0].unsqueeze(1)
 
         confidence_loss = self.confidence_loss(predicted_confidence, confidence_targets)
 
@@ -344,6 +345,7 @@ class RegimeTrainer:
         epochs = epochs or self.config.max_epochs
         logger.info(f"Starting training for {epochs} epochs")
 
+        val_metrics = None  # ensure bound even on non-validation checkpoint epochs
         for epoch in range(epochs):
             self.current_epoch = epoch
             start_time = time.time()
