@@ -358,10 +358,15 @@ class RecommendationEngine:
             f"Max risk: {strategy.max_drawdown:.1%}"
         )
 
-        # Position sizing
-        explanations.append(
-            f"Recommended position size: {strategy.kelly_size:.1%} of capital"
-        )
+        # Position sizing (kelly_size is None when historical data is absent)
+        if strategy.kelly_size is None:
+            explanations.append(
+                "Recommended position size: insufficient historical data to size"
+            )
+        else:
+            explanations.append(
+                f"Recommended position size: {strategy.kelly_size:.1%} of capital"
+            )
 
         # Add strategy-specific insights
         if strategy.strategy_type in [StrategyType.IRON_CONDOR, StrategyType.BUTTERFLY]:
