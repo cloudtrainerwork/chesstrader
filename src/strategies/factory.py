@@ -160,68 +160,63 @@ class StrategyFactory:
         """
         Build mappings from market regimes to preferred strategies.
 
-        8-regime market classification system:
-        0: Deep Bear Market
-        1: Bull Trending
-        2: High Volatility Trending
-        3: Uncertain/Transitional
-        4: Low Volatility/Sideways
-        5: Moderate Bull/Sideways
-        6: Recovery Phase
-        7: High Volatility Uncertain
-        8: Extreme Volatility
+        Regime integers match RegimeType in src/data/regime_labeler.py, which
+        produces the training labels the regime detector learns. The mapping
+        below must stay aligned with that enum so that the strategy recommended
+        at inference matches the regime the model was trained to identify.
+
+        8-regime market classification system (RegimeType):
+        0: BULL_TRENDING    - Strong upward momentum
+        1: BEAR_TRENDING    - Strong downward momentum
+        2: HIGH_VOLATILITY  - Elevated volatility environment
+        3: LOW_VOLATILITY   - Subdued volatility environment
+        4: SIDEWAYS_RANGING - Consolidation patterns
+        5: RECOVERY         - Post-decline bounce patterns
+        6: DISTRIBUTION     - Pre-decline weakening
+        7: CRISIS           - Extreme stress conditions
 
         Returns:
             Dictionary mapping regime numbers to preferred strategy types
         """
         return {
-            0: [  # Deep Bear Market
-                StrategyType.LONG_PUT,
-                StrategyType.BEAR_PUT_SPREAD,
-                StrategyType.BEAR_CALL_SPREAD,
-                StrategyType.LONG_STRADDLE,
-            ],
-            1: [  # Bull Trending
+            0: [  # BULL_TRENDING
                 StrategyType.LONG_CALL,
                 StrategyType.BULL_CALL_SPREAD,
                 StrategyType.BULL_PUT_SPREAD,
             ],
-            2: [  # High Volatility Trending
+            1: [  # BEAR_TRENDING
+                StrategyType.LONG_PUT,
+                StrategyType.BEAR_PUT_SPREAD,
+                StrategyType.BEAR_CALL_SPREAD,
+            ],
+            2: [  # HIGH_VOLATILITY
                 StrategyType.LONG_STRADDLE,
                 StrategyType.LONG_STRANGLE,
-                StrategyType.BULL_CALL_SPREAD,
-                StrategyType.BEAR_PUT_SPREAD,
             ],
-            3: [  # Uncertain/Transitional
+            3: [  # LOW_VOLATILITY
+                StrategyType.CALENDAR_CALL,
+                StrategyType.CALENDAR_PUT,
+                StrategyType.SHORT_STRADDLE,
+            ],
+            4: [  # SIDEWAYS_RANGING
                 StrategyType.IRON_CONDOR,
                 StrategyType.SHORT_STRANGLE,
                 StrategyType.BUTTERFLY,
             ],
-            4: [  # Low Volatility/Sideways
-                StrategyType.CALENDAR_CALL,
-                StrategyType.CALENDAR_PUT,
-                StrategyType.SHORT_STRADDLE,
-                StrategyType.IRON_CONDOR,
-            ],
-            5: [  # Moderate Bull/Sideways
-                StrategyType.BULL_PUT_SPREAD,
-                StrategyType.SHORT_STRANGLE,
-                StrategyType.IRON_CONDOR,
-            ],
-            6: [  # Recovery Phase
+            5: [  # RECOVERY
                 StrategyType.BULL_CALL_SPREAD,
                 StrategyType.LONG_CALL,
                 StrategyType.BULL_PUT_SPREAD,
             ],
-            7: [  # High Volatility Uncertain
-                StrategyType.LONG_STRADDLE,
-                StrategyType.LONG_STRANGLE,
+            6: [  # DISTRIBUTION
+                StrategyType.BEAR_CALL_SPREAD,
                 StrategyType.IRON_CONDOR,
+                StrategyType.SHORT_STRANGLE,
             ],
-            8: [  # Extreme Volatility
+            7: [  # CRISIS
+                StrategyType.LONG_PUT,
                 StrategyType.LONG_STRADDLE,
-                StrategyType.LONG_STRANGLE,
-                StrategyType.SHORT_STRANGLE,  # For mean reversion
+                StrategyType.BEAR_PUT_SPREAD,
             ],
         }
 
@@ -346,15 +341,14 @@ class StrategyFactory:
             Performance category string
         """
         regime_performance_map = {
-            0: "defensive",      # Deep Bear
-            1: "growth",        # Bull Trending
-            2: "volatile",      # High Vol Trending
-            3: "neutral",       # Uncertain
-            4: "income",        # Low Vol Sideways
-            5: "moderate",      # Moderate Bull
-            6: "recovery",      # Recovery Phase
-            7: "adaptive",      # High Vol Uncertain
-            8: "speculative",   # Extreme Volatility
+            0: "growth",         # BULL_TRENDING
+            1: "defensive",      # BEAR_TRENDING
+            2: "volatile",       # HIGH_VOLATILITY
+            3: "income",         # LOW_VOLATILITY
+            4: "neutral",        # SIDEWAYS_RANGING
+            5: "recovery",       # RECOVERY
+            6: "defensive",      # DISTRIBUTION
+            7: "defensive",      # CRISIS
         }
 
         return regime_performance_map.get(regime, "unknown")
@@ -372,7 +366,7 @@ class StrategyFactory:
         """
         base_risk = strategy.risk_level.value
 
-        high_risk_regimes = [0, 2, 7, 8]  # Volatile or extreme conditions
+        high_risk_regimes = [1, 2, 6, 7]  # BEAR_TRENDING, HIGH_VOLATILITY, DISTRIBUTION, CRISIS
         if regime in high_risk_regimes:
             if base_risk in ["low", "medium"]:
                 return "appropriate_risk"

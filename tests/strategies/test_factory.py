@@ -25,7 +25,7 @@ class TestStrategyFactory:
     def bull_conditions(self):
         """Bullish market conditions."""
         return MarketConditions(
-            regime=1,  # Bull trending
+            regime=0,  # BULL_TRENDING (RegimeType)
             volatility_rank=0.4,
             trend_strength=0.7,
             time_to_expiration=35,
@@ -37,7 +37,7 @@ class TestStrategyFactory:
     def bear_conditions(self):
         """Bearish market conditions."""
         return MarketConditions(
-            regime=0,  # Deep bear
+            regime=1,  # BEAR_TRENDING (RegimeType)
             volatility_rank=0.7,
             trend_strength=-0.8,
             time_to_expiration=30,
@@ -49,7 +49,7 @@ class TestStrategyFactory:
     def low_vol_conditions(self):
         """Low volatility market conditions."""
         return MarketConditions(
-            regime=4,  # Low vol sideways
+            regime=3,  # LOW_VOLATILITY (RegimeType)
             volatility_rank=0.2,
             trend_strength=0.1,
             time_to_expiration=40,
@@ -116,7 +116,7 @@ class TestStrategyFactory:
 
     def test_bull_regime_recommendations(self, factory, bull_conditions):
         """Test recommendations for bullish market regime."""
-        recommendations = factory.get_recommended_strategies(1, bull_conditions)
+        recommendations = factory.get_recommended_strategies(0, bull_conditions)
 
         assert len(recommendations) > 0
         assert len(recommendations) <= 5  # Default max
@@ -140,7 +140,7 @@ class TestStrategyFactory:
 
     def test_bear_regime_recommendations(self, factory, bear_conditions):
         """Test recommendations for bearish market regime."""
-        recommendations = factory.get_recommended_strategies(0, bear_conditions)
+        recommendations = factory.get_recommended_strategies(1, bear_conditions)
 
         assert len(recommendations) > 0
 
@@ -159,7 +159,7 @@ class TestStrategyFactory:
 
     def test_low_volatility_recommendations(self, factory, low_vol_conditions):
         """Test recommendations for low volatility regime."""
-        recommendations = factory.get_recommended_strategies(4, low_vol_conditions)
+        recommendations = factory.get_recommended_strategies(3, low_vol_conditions)
 
         assert len(recommendations) > 0
 
@@ -169,7 +169,6 @@ class TestStrategyFactory:
             StrategyType.CALENDAR_CALL,
             StrategyType.CALENDAR_PUT,
             StrategyType.SHORT_STRADDLE,
-            StrategyType.IRON_CONDOR
         ]
 
         # At least some low vol strategies should be recommended
@@ -295,16 +294,16 @@ class TestStrategyFactory:
 
     def test_regime_strategy_alignment(self, factory):
         """Test that recommended strategies align with regime characteristics."""
-        # Test specific regime-strategy alignments
+        # Test specific regime-strategy alignments (RegimeType numbering)
 
-        # Regime 0 (Deep Bear) should favor protective strategies
-        bear_recs = factory.get_recommended_strategies(0)
+        # Regime 1 (BEAR_TRENDING) should favor protective strategies
+        bear_recs = factory.get_recommended_strategies(1)
         bear_types = [rec.strategy_type for rec in bear_recs]
-        protective_strategies = [StrategyType.LONG_PUT, StrategyType.BEAR_PUT_SPREAD, StrategyType.LONG_STRADDLE]
+        protective_strategies = [StrategyType.LONG_PUT, StrategyType.BEAR_PUT_SPREAD, StrategyType.BEAR_CALL_SPREAD]
         assert any(st in bear_types for st in protective_strategies), "Bear regime should favor protective strategies"
 
-        # Regime 4 (Low Vol) should favor time decay strategies
-        low_vol_recs = factory.get_recommended_strategies(4)
+        # Regime 3 (LOW_VOLATILITY) should favor time decay strategies
+        low_vol_recs = factory.get_recommended_strategies(3)
         low_vol_types = [rec.strategy_type for rec in low_vol_recs]
         time_decay_strategies = [StrategyType.CALENDAR_CALL, StrategyType.CALENDAR_PUT, StrategyType.SHORT_STRADDLE]
         assert any(st in low_vol_types for st in time_decay_strategies), "Low vol regime should favor time decay"
@@ -344,6 +343,47 @@ class TestStrategyFactory:
         for rec1, rec2 in zip(recs1, recs2):
             assert rec1.strategy_type == rec2.strategy_type
             assert abs(rec1.confidence - rec2.confidence) < 0.001  # Should be very close
+
+    def test_regime_mappings_match_labeler_numbering(self, factory):
+        """Guard against regime/strategy inversion (issue #15).
+
+        The factory's regime integers must match RegimeType in
+        src/data/regime_labeler.py, which produces the training labels the
+        regime detector learns. RegimeType is not imported here directly
+        because src.data.regime_labeler currently fails to import (issue #1),
+        so the canonical numbering is asserted inline as the contract:
+
+            0: BULL_TRENDING     5: RECOVERY
+            1: BEAR_TRENDING     6: DISTRIBUTION
+            2: HIGH_VOLATILITY   7: CRISIS
+            3: LOW_VOLATILITY
+            4: SIDEWAYS_RANGING
+
+        If this test fails, the factory mapping and the labeler have diverged
+        and the model will recommend strategies for the wrong regime.
+        """
+        bullish = {StrategyType.LONG_CALL, StrategyType.BULL_CALL_SPREAD, StrategyType.BULL_PUT_SPREAD}
+        bearish = {StrategyType.LONG_PUT, StrategyType.BEAR_PUT_SPREAD, StrategyType.BEAR_CALL_SPREAD}
+
+        # Regime 0 is BULL_TRENDING: must lean bullish, must not be net bearish.
+        bull_types = {rec.strategy_type for rec in factory.get_recommended_strategies(0)}
+        assert bull_types & bullish, "Regime 0 (BULL_TRENDING) must recommend bullish strategies"
+        assert not (bull_types & bearish), "Regime 0 (BULL_TRENDING) must not recommend bearish strategies"
+
+        # Regime 1 is BEAR_TRENDING: must lean bearish, must not be net bullish.
+        bear_types = {rec.strategy_type for rec in factory.get_recommended_strategies(1)}
+        assert bear_types & bearish, "Regime 1 (BEAR_TRENDING) must recommend bearish strategies"
+        assert not (bear_types & bullish), "Regime 1 (BEAR_TRENDING) must not recommend bullish strategies"
+
+        # Regime 7 is CRISIS: must include protective strategies.
+        crisis_types = {rec.strategy_type for rec in factory.get_recommended_strategies(7)}
+        assert crisis_types & {StrategyType.LONG_PUT, StrategyType.BEAR_PUT_SPREAD, StrategyType.LONG_STRADDLE}, \
+            "Regime 7 (CRISIS) must recommend protective strategies"
+
+        # Only regimes 0-7 exist; the detector outputs 8 regimes, so regime 8
+        # must not be present (it would be unreachable at inference).
+        assert set(factory._regime_mappings.keys()) == set(range(8)), \
+            "Factory must define exactly regimes 0-7 to match an 8-class detector"
 
     def test_comprehensive_factory_validation(self, factory):
         """Comprehensive validation of factory functionality."""

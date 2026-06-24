@@ -119,7 +119,7 @@ class TestStrategyFrameworkIntegration:
     def test_recommendations_ranking(self, factory):
         """Test recommendations are properly ranked by confidence."""
         conditions = MarketConditions(
-            regime=1,  # Bull trending
+            regime=1,  # BEAR_TRENDING (RegimeType)
             volatility_rank=0.4,
             trend_strength=0.6,
             time_to_expiration=30,
@@ -212,10 +212,10 @@ class TestStrategyFrameworkIntegration:
         """Test market condition validation across strategies."""
         # Test various market conditions
         test_conditions = [
-            MarketConditions(0, 0.8, -0.8, 30, 10000, 0.05),  # Deep bear, high vol
-            MarketConditions(1, 0.4, 0.6, 30, 10000, 0.05),   # Bull trending
-            MarketConditions(4, 0.2, 0.1, 30, 10000, 0.05),   # Low vol sideways
-            MarketConditions(7, 0.9, 0.0, 30, 10000, 0.05),   # High vol uncertain
+            MarketConditions(0, 0.8, 0.8, 30, 10000, 0.05),   # BULL_TRENDING
+            MarketConditions(1, 0.7, -0.6, 30, 10000, 0.05),  # BEAR_TRENDING
+            MarketConditions(4, 0.2, 0.1, 30, 10000, 0.05),   # SIDEWAYS_RANGING
+            MarketConditions(7, 0.9, -0.8, 30, 10000, 0.05),  # CRISIS
         ]
 
         strategies = factory.get_all_strategies()[:5]  # Test subset of strategies
